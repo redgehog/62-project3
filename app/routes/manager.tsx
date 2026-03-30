@@ -29,15 +29,15 @@ interface Employee {
 }
 
 const INITIAL_INVENTORY: InventoryItem[] = [
-  { id: 1, name: "Passion Fruit",        category: "Milk Tea",   qty: 145, min: 10, onMenu: true },
-  { id: 2, name: "Matcha Latte",         category: "Specialty",  qty: 16,  min: 10, onMenu: true },
-  { id: 3, name: "Peach Milk Tea",       category: "Milk Tea",   qty: 20,  min: 10, onMenu: true },
-  { id: 4, name: "Wintermelon Milk Tea", category: "Milk Tea",   qty: 20,  min: 10, onMenu: true },
-  { id: 5, name: "Honeydew Milk Tea",    category: "Milk Tea",   qty: 16,  min: 10, onMenu: true },
-  { id: 6, name: "Mango Milk Tea",       category: "Milk Tea",   qty: 16,  min: 10, onMenu: true },
-  { id: 7, name: "Classic Milk Tea",     category: "Milk Tea",   qty: 19,  min: 10, onMenu: true },
-  { id: 8, name: "Grape Chia",           category: "Milk Tea",   qty: 199, min: 10, onMenu: true },
-  { id: 9, name: "Jasmine Green Tea",    category: "Brewed Tea", qty: 3,   min: 10, onMenu: true },
+  { id: 1, name: "Passion Fruit",        category: "Milk Tea",   qty: 145, min: 10, onMenu: true  },
+  { id: 2, name: "Matcha Latte",         category: "Specialty",  qty: 16,  min: 10, onMenu: true  },
+  { id: 3, name: "Peach Milk Tea",       category: "Milk Tea",   qty: 20,  min: 10, onMenu: true  },
+  { id: 4, name: "Wintermelon Milk Tea", category: "Milk Tea",   qty: 20,  min: 10, onMenu: true  },
+  { id: 5, name: "Honeydew Milk Tea",    category: "Milk Tea",   qty: 16,  min: 10, onMenu: true  },
+  { id: 6, name: "Mango Milk Tea",       category: "Milk Tea",   qty: 16,  min: 10, onMenu: true  },
+  { id: 7, name: "Classic Milk Tea",     category: "Milk Tea",   qty: 19,  min: 10, onMenu: true  },
+  { id: 8, name: "Grape Chia",           category: "Milk Tea",   qty: 199, min: 10, onMenu: true  },
+  { id: 9, name: "Jasmine Green Tea",    category: "Brewed Tea", qty: 3,   min: 10, onMenu: true  },
 ];
 
 const INITIAL_EMPLOYEES: Employee[] = [
@@ -46,12 +46,8 @@ const INITIAL_EMPLOYEES: Employee[] = [
   { id: 3, name: "Carol Lee",     role: "Manager", hours: 40 },
 ];
 
-const TABS = ["Inventory", "Menu", "Employees"];
-
-const th: React.CSSProperties = { padding: "8px 12px", border: "1px solid #ccc", textAlign: "left", fontWeight: 600 };
-const td: React.CSSProperties = { padding: "8px 12px", border: "1px solid #ccc" };
-const actionBtn: React.CSSProperties = { padding: "6px 14px", border: "1px solid #ccc", background: "#f0f0f0", cursor: "pointer", fontSize: "13px" };
-const inputStyle: React.CSSProperties = { padding: "4px 8px", border: "1px solid #ccc", fontSize: "13px", width: "120px" };
+const TABS = ["Inventory", "Menu", "Employees"] as const;
+type Tab = typeof TABS[number];
 
 export default function Manager() {
   const { dbCheck } = useLoaderData<typeof loader>();
@@ -72,145 +68,179 @@ export default function Manager() {
   const handleAdd = () => {
     if (!newItem.name || !newItem.category) return;
     const nextId = inventory.length ? Math.max(...inventory.map((i) => i.id)) + 1 : 1;
-    setInventory((prev) => [...prev, { id: nextId, name: newItem.name, category: newItem.category, qty: Number(newItem.qty) || 0, min: Number(newItem.min) || 0, onMenu: false }]);
+    setInventory((prev) => [
+      ...prev,
+      { id: nextId, name: newItem.name, category: newItem.category, qty: Number(newItem.qty) || 0, min: Number(newItem.min) || 0, onMenu: false },
+    ]);
     setNewItem({ name: "", category: "", qty: "", min: "" });
   };
 
-  const toggleMenu = (id: number) => setInventory((prev) => prev.map((i) => i.id === id ? { ...i, onMenu: !i.onMenu } : i));
+  const toggleMenu = (id: number) =>
+    setInventory((prev) => prev.map((i) => i.id === id ? { ...i, onMenu: !i.onMenu } : i));
+
+  const inputCls = "border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600";
+  const btnCls = "px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors";
 
   return (
-    <div style={{ fontFamily: "sans-serif", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="h-screen flex flex-col bg-slate-50">
+      {/* Header */}
+      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
+        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <span className="text-slate-300 text-sm font-medium">Manager</span>
+      </header>
 
-      {/* HEADER */}
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid #ccc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ fontSize: "20px", margin: 0 }}>Boba Shop POS</h1>
-        <div>
-          <span style={{ marginRight: "12px", color: "#999", fontSize: "14px" }}>View:</span>
-          <span style={{ marginRight: "8px", fontSize: "14px", cursor: "pointer", color: "#999" }}>Cashier</span>
-          <button style={{ padding: "6px 16px", background: "#333", color: "#fff", border: "none", cursor: "pointer", fontSize: "14px" }}>Manager</button>
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-        {/* SIDEBAR */}
-        <div style={{ width: "180px", borderRight: "1px solid #ccc", padding: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          <div style={{ fontWeight: "bold", marginBottom: "8px" }}>Manager</div>
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <nav className="w-44 bg-white border-r border-slate-200 p-4 flex flex-col gap-1 shrink-0" aria-label="Manager sections">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2 px-2">Sections</p>
           {TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              style={{ padding: "8px 12px", border: "1px solid #ccc", background: activeTab === tab ? "#dceeff" : "#fff", cursor: "pointer", textAlign: "left", fontSize: "14px", outline: activeTab === tab ? "2px solid #4a90d9" : "none" }}
+              aria-pressed={activeTab === tab}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                ${activeTab === tab
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-700 hover:bg-slate-100"
+                }`}
             >
               {tab}
             </button>
           ))}
-        </div>
+        </nav>
 
-        {/* MAIN CONTENT */}
-        <div style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
+        {/* Main content */}
+        <main className="flex-1 p-6 overflow-y-auto">
 
           {activeTab === "Inventory" && (
-            <>
-              <h2 style={{ marginBottom: "16px" }}>Inventory — View, Add &amp; Edit Items &amp; Quantities</h2>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", marginBottom: "12px" }}>
-                <thead>
-                  <tr style={{ background: "#f0f0f0" }}>
-                    <th style={th}>ID</th>
-                    <th style={th}>Name</th>
-                    <th style={th}>Category</th>
-                    <th style={th}>Quantity</th>
-                    <th style={th}>Minimum</th>
-                    <th style={th}>On Menu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventory.map((item) => (
-                    <tr
-                      key={item.id}
-                      onClick={() => handleSelect(item.id)}
-                      style={{ background: selected === item.id ? "#dceeff" : "#fff", cursor: "pointer" }}
-                    >
-                      <td style={td}>{item.id}</td>
-                      <td style={td}>{item.name}</td>
-                      <td style={td}>{item.category}</td>
-                      <td style={td}>{item.qty}</td>
-                      <td style={td}>{item.min}</td>
-                      <td style={td}>{item.onMenu ? "✓" : ""}</td>
+            <section aria-label="Inventory management">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Inventory</h2>
+
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Category</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Qty</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Min</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
-                <button style={actionBtn}>Edit selected</button>
-                <button onClick={handleDelete} style={{ ...actionBtn, color: "red", borderColor: "red" }}>Delete selected</button>
-                <button onClick={() => selected !== null && toggleMenu(selected)} style={actionBtn}>Add to menu</button>
-                <button onClick={() => selected !== null && toggleMenu(selected)} style={actionBtn}>Remove from menu</button>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {inventory.map((item) => (
+                      <tr
+                        key={item.id}
+                        onClick={() => handleSelect(item.id)}
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === "Enter" && handleSelect(item.id)}
+                        aria-selected={selected === item.id}
+                        className={`cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
+                          ${selected === item.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                      >
+                        <td className="px-4 py-3 text-slate-600">{item.id}</td>
+                        <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.category}</td>
+                        <td className={`px-4 py-3 font-medium ${item.qty <= item.min ? "text-red-600" : "text-slate-800"}`}>{item.qty}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.min}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.onMenu ? "Yes" : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <strong style={{ fontSize: "14px" }}>Add new inventory item</strong>
-                <div style={{ display: "flex", gap: "12px", marginTop: "10px", alignItems: "center", flexWrap: "wrap", fontSize: "14px" }}>
-                  <label>Name: <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} placeholder="Name" style={inputStyle} /></label>
-                  <label>Category: <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} placeholder="Category" style={inputStyle} /></label>
-                  <label>Qty: <input value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} placeholder="Qty" style={{ ...inputStyle, width: "60px" }} /></label>
-                  <label>Minimum: <input value={newItem.min} onChange={(e) => setNewItem({ ...newItem, min: e.target.value })} placeholder="Min" style={{ ...inputStyle, width: "60px" }} /></label>
-                  <button onClick={handleAdd} style={{ padding: "6px 16px", border: "1px solid #ccc", background: "#f0f0f0", cursor: "pointer", fontSize: "14px" }}>Add</button>
+
+              <div className="flex gap-2 mb-8">
+                <button onClick={handleDelete} className="px-4 py-1.5 rounded-lg text-sm font-medium border border-red-300 bg-white text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors">
+                  Delete selected
+                </button>
+                <button onClick={() => selected !== null && toggleMenu(selected)} className={btnCls}>
+                  Toggle on menu
+                </button>
+              </div>
+
+              <div className="bg-white rounded-lg border border-slate-200 p-5">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Add new item</h3>
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-slate-600">Name</label>
+                    <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} placeholder="Name" className={inputCls} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-slate-600">Category</label>
+                    <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} placeholder="Category" className={inputCls} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-slate-600">Qty</label>
+                    <input value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} placeholder="0" className={`${inputCls} w-20`} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-slate-600">Minimum</label>
+                    <input value={newItem.min} onChange={(e) => setNewItem({ ...newItem, min: e.target.value })} placeholder="0" className={`${inputCls} w-20`} />
+                  </div>
+                  <button onClick={handleAdd} className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors">
+                    Add
+                  </button>
                 </div>
               </div>
-            </>
+            </section>
           )}
 
           {activeTab === "Menu" && (
-            <>
-              <h2 style={{ marginBottom: "16px" }}>Menu</h2>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-                <thead>
-                  <tr style={{ background: "#f0f0f0" }}>
-                    <th style={th}>Name</th>
-                    <th style={th}>Category</th>
-                    <th style={th}>On Menu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventory.filter((i) => i.onMenu).map((item) => (
-                    <tr key={item.id}>
-                      <td style={td}>{item.name}</td>
-                      <td style={td}>{item.category}</td>
-                      <td style={td}>✓</td>
+            <section aria-label="Menu items">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Menu</h2>
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Category</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {inventory.filter((i) => i.onMenu).map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.category}</td>
+                        <td className="px-4 py-3 text-green-700 font-medium">Yes</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
 
           {activeTab === "Employees" && (
-            <>
-              <h2 style={{ marginBottom: "16px" }}>Employees</h2>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-                <thead>
-                  <tr style={{ background: "#f0f0f0" }}>
-                    <th style={th}>ID</th>
-                    <th style={th}>Name</th>
-                    <th style={th}>Role</th>
-                    <th style={th}>Hours This Week</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {employees.map((emp) => (
-                    <tr key={emp.id}>
-                      <td style={td}>{emp.id}</td>
-                      <td style={td}>{emp.name}</td>
-                      <td style={td}>{emp.role}</td>
-                      <td style={td}>{emp.hours}</td>
+            <section aria-label="Employee list">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Employees</h2>
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Role</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Hours This Week</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {employees.map((emp) => (
+                      <tr key={emp.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-600">{emp.id}</td>
+                        <td className="px-4 py-3 text-slate-900 font-medium">{emp.name}</td>
+                        <td className="px-4 py-3 text-slate-700">{emp.role}</td>
+                        <td className="px-4 py-3 text-slate-700">{emp.hours}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
-
-        </div>
+        </main>
       </div>
 
       {/* STATUS BAR */}
