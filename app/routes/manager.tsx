@@ -1,8 +1,15 @@
 import { useState } from "react";
+import { useLoaderData } from "react-router";
 import type { Route } from "./+types/manager";
+import pool from "../db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager" }];
+}
+
+export async function loader() {
+  const result = await pool.query("SELECT current_database() AS db, now() AS time");
+  return { dbCheck: result.rows[0] };
 }
 
 interface InventoryItem {
@@ -47,6 +54,7 @@ const actionBtn: React.CSSProperties = { padding: "6px 14px", border: "1px solid
 const inputStyle: React.CSSProperties = { padding: "4px 8px", border: "1px solid #ccc", fontSize: "13px", width: "120px" };
 
 export default function Manager() {
+  const { dbCheck } = useLoaderData<typeof loader>();
   const [activeTab, setActiveTab] = useState("Inventory");
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
   const [selected, setSelected] = useState<number | null>(null);
@@ -207,7 +215,7 @@ export default function Manager() {
 
       {/* STATUS BAR */}
       <div style={{ padding: "6px 20px", borderTop: "1px solid #ccc", fontSize: "12px", color: "#777" }}>
-        Manager — menu, inventory, employees
+        Manager — menu, inventory, employees &nbsp;|&nbsp; DB: {dbCheck?.db} @ {dbCheck?.time}
       </div>
     </div>
   );
