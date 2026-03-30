@@ -1,0 +1,8 @@
+$kind: http-request
+name: Predict Nationality by Name
+method: GET
+url: 'https://api.nationalize.io'
+order: 1000
+queryParams:
+  - key: name
+    value: '{{name}}'

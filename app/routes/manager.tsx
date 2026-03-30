@@ -1,8 +1,15 @@
 import { useState } from "react";
+import { useLoaderData } from "react-router";
 import type { Route } from "./+types/manager";
+import pool from "../db.server";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Manager — Boba House" }];
+  return [{ title: "Manager" }];
+}
+
+export async function loader() {
+  const result = await pool.query("SELECT current_database() AS db, now() AS time");
+  return { dbCheck: result.rows[0] };
 }
 
 interface InventoryItem {
@@ -43,7 +50,8 @@ const TABS = ["Inventory", "Menu", "Employees"] as const;
 type Tab = typeof TABS[number];
 
 export default function Manager() {
-  const [activeTab, setActiveTab] = useState<Tab>("Inventory");
+  const { dbCheck } = useLoaderData<typeof loader>();
+  const [activeTab, setActiveTab] = useState("Inventory");
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
   const [selected, setSelected] = useState<number | null>(null);
   const [newItem, setNewItem] = useState({ name: "", category: "", qty: "", min: "" });
@@ -235,10 +243,10 @@ export default function Manager() {
         </main>
       </div>
 
-      {/* Status bar */}
-      <footer className="bg-slate-700 px-6 py-1.5 shrink-0">
-        <p className="text-slate-300 text-xs">Manager — {activeTab.toLowerCase()}</p>
-      </footer>
+      {/* STATUS BAR */}
+      <div style={{ padding: "6px 20px", borderTop: "1px solid #ccc", fontSize: "12px", color: "#777" }}>
+        Manager — menu, inventory, employees &nbsp;|&nbsp; DB: {dbCheck?.db} @ {dbCheck?.time}
+      </div>
     </div>
   );
 }

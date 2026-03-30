@@ -1,0 +1,10 @@
+$kind: http-request
+name: Predict Nationality for Multiple Names
+method: GET
+url: 'https://api.nationalize.io'
+order: 2000
+queryParams:
+  - key: 'name[]'
+    value: '{{name1}}'
+  - key: 'name[]'
+    value: '{{name2}}'

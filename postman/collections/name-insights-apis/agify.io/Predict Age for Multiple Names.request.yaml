@@ -1,0 +1,10 @@
+$kind: http-request
+name: Predict Age for Multiple Names
+method: GET
+url: 'https://api.agify.io'
+order: 3000
+queryParams:
+  - key: 'name[]'
+    value: '{{name1}}'
+  - key: 'name[]'
+    value: '{{name2}}'

@@ -1,0 +1,10 @@
+$kind: http-request
+name: Predict Age by Name and Country
+method: GET
+url: 'https://api.agify.io'
+order: 2000
+queryParams:
+  - key: name
+    value: '{{name}}'
+  - key: country_id
+    value: '{{country_id}}'
