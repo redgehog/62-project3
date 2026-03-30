@@ -8,7 +8,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader() {
-  const result = await pool.query("SELECT current_database() AS db, now() AS time");
+  const result = await pool.query("SELECT current_database() AS db, now()::text AS time");
   return { dbCheck: result.rows[0] };
 }
 
