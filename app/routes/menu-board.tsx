@@ -1,41 +1,41 @@
 import type { Route } from "./+types/menu-board";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Menu Board" }];
+  return [{ title: "Menu Board — Boba House" }];
 }
 
-const MENU: Record<string, string[]> = {
-  "Blended": [
-    "Taro Smoothie",
-    "Mango Smoothie",
-    "Strawberry Smoothie",
-    "Matcha Smoothie",
-    "Honeydew Smoothie",
-    "Peach Smoothie",
-  ],
+const MENU: Record<string, { name: string; price: number }[]> = {
   "Milk Teas": [
-    "Classic Milk Tea",
-    "Taro Milk Tea",
-    "Brown Sugar Milk Tea",
-    "Mango Milk Tea",
-    "Strawberry Milk Tea",
-    "Honeydew Milk Tea",
+    { name: "Classic Milk Tea",     price: 5.00 },
+    { name: "Taro Milk Tea",        price: 5.00 },
+    { name: "Brown Sugar Milk Tea", price: 5.00 },
+    { name: "Mango Milk Tea",       price: 5.00 },
+    { name: "Strawberry Milk Tea",  price: 5.00 },
+    { name: "Honeydew Milk Tea",    price: 5.00 },
   ],
   "Fruit Teas": [
-    "Peach Tea",
-    "Lychee Tea",
-    "Passion Fruit Tea",
-    "Mango Green Tea",
-    "Strawberry Green Tea",
-    "Watermelon Tea",
+    { name: "Peach Tea",            price: 4.00 },
+    { name: "Lychee Tea",           price: 4.00 },
+    { name: "Passion Fruit Tea",    price: 4.00 },
+    { name: "Mango Green Tea",      price: 4.00 },
+    { name: "Strawberry Green Tea", price: 4.00 },
+    { name: "Watermelon Tea",       price: 4.00 },
+  ],
+  "Blended": [
+    { name: "Taro Smoothie",        price: 5.50 },
+    { name: "Mango Smoothie",       price: 5.50 },
+    { name: "Strawberry Smoothie",  price: 5.50 },
+    { name: "Matcha Smoothie",      price: 5.50 },
+    { name: "Honeydew Smoothie",    price: 5.50 },
+    { name: "Peach Smoothie",       price: 5.50 },
   ],
   "Specials": [
-    "Tiger Milk Tea",
-    "Brown Sugar Boba",
-    "Matcha Latte",
-    "Chai Latte",
-    "Lavender Tea",
-    "Seasonal Special",
+    { name: "Tiger Milk Tea",       price: 6.50 },
+    { name: "Brown Sugar Boba",     price: 6.50 },
+    { name: "Matcha Latte",         price: 6.00 },
+    { name: "Chai Latte",           price: 5.75 },
+    { name: "Lavender Tea",         price: 5.75 },
+    { name: "Seasonal Special",     price: 6.50 },
   ],
 };
 
@@ -43,26 +43,39 @@ export default function MenuBoard() {
   const categories = Object.keys(MENU);
 
   return (
-    <div style={{ fontFamily: "sans-serif", height: "100vh", display: "flex", flexDirection: "column", background: "#fff" }}>
+    <div className="h-screen flex flex-col bg-slate-900">
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 px-8 py-5 flex items-center justify-between shrink-0">
+        <h1 className="text-white text-3xl font-extrabold tracking-wide">Boba House</h1>
+        <span className="text-slate-300 text-sm font-medium uppercase tracking-widest">Menu</span>
+      </header>
 
-      {/* HEADER */}
-      <div style={{ padding: "8px 16px", borderBottom: "1px solid #ccc", background: "#222", color: "#aaa", fontSize: "13px" }}>
-        Menu Board
-      </div>
-
-      {/* CONTENT */}
-      <div style={{ flex: 1, padding: "32px", display: "grid", gridTemplateColumns: `repeat(${categories.length}, 1fr)`, gap: "0" }}>
+      {/* Menu grid */}
+      <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: `repeat(${categories.length}, 1fr)` }}>
         {categories.map((cat, i) => (
-          <div key={cat} style={{ borderRight: i < categories.length - 1 ? "1px solid #eee" : "none", paddingRight: "24px", paddingLeft: i > 0 ? "24px" : "0" }}>
-            <h2 style={{ fontSize: "28px", fontWeight: "bold", marginBottom: "24px" }}>{cat}</h2>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "18px" }}>
-              {MENU[cat].map((item, j) => (
-                <li key={j} style={{ fontSize: "16px", color: "#222" }}>{item}</li>
+          <div
+            key={cat}
+            className={`flex flex-col overflow-y-auto px-8 py-8 ${i < categories.length - 1 ? "border-r border-slate-700" : ""}`}
+          >
+            <h2 className="text-blue-400 text-xl font-bold uppercase tracking-widest mb-6 pb-3 border-b border-slate-700">
+              {cat}
+            </h2>
+            <ul className="flex flex-col gap-5" role="list">
+              {MENU[cat].map((item) => (
+                <li key={item.name} className="flex items-baseline justify-between gap-4">
+                  <span className="text-slate-100 text-base font-medium">{item.name}</span>
+                  <span className="text-slate-300 text-sm whitespace-nowrap">${item.price.toFixed(2)}</span>
+                </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
+
+      {/* Footer */}
+      <footer className="bg-slate-800 border-t border-slate-700 px-8 py-2 shrink-0">
+        <p className="text-slate-400 text-xs text-center">All drinks available in small (16 oz) or large (24 oz) · Add any topping for $0.75</p>
+      </footer>
     </div>
   );
 }

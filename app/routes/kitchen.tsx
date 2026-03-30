@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Route } from "./+types/kitchen";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Kitchen" }];
+  return [{ title: "Kitchen — Boba House" }];
 }
 
 interface Order {
@@ -26,41 +26,54 @@ export default function Kitchen() {
   const completeOrder = (id: number) => setOrders((prev) => prev.filter((o) => o.id !== id));
 
   return (
-    <div style={{ fontFamily: "sans-serif", height: "100vh", display: "flex", flexDirection: "column", background: "#fff" }}>
+    <div className="h-screen flex flex-col bg-slate-50">
+      {/* Header */}
+      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
+        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <span className="text-slate-300 text-sm font-medium">Kitchen Display</span>
+      </header>
 
-      {/* HEADER */}
-      <div style={{ padding: "8px 16px", background: "#222", color: "#aaa", fontSize: "13px" }}>
-        Kitchen Interface
-      </div>
-
-      {/* ORDER CARDS */}
-      <div style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
+      {/* Order cards */}
+      <div className="flex-1 p-5 overflow-y-auto">
         {orders.length === 0 ? (
-          <p style={{ color: "#999", fontSize: "14px" }}>No pending orders.</p>
+          <div className="flex items-center justify-center h-full">
+            <p className="text-slate-400 text-lg font-medium">No pending orders</p>
+          </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "16px" }}>
+          <div className="grid grid-cols-5 gap-4">
             {orders.map((order) => (
               <div
                 key={order.id}
-                style={{ border: "1px solid #ccc", background: "#d9d9d9", padding: "14px", display: "flex", flexDirection: "column", minHeight: "220px" }}
+                className="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col min-h-48"
               >
-                <div style={{ fontWeight: "bold", fontSize: "18px", marginBottom: "12px" }}>Order #{order.id}</div>
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 rounded-t-lg">
+                  <span className="text-sm font-bold text-slate-800">Order #{order.id}</span>
+                </div>
+                <ul className="flex-1 px-4 py-3 space-y-2" role="list">
                   {order.items.map((item, i) => (
-                    <li key={i} style={{ fontSize: "13px" }}>{item}</li>
+                    <li key={i} className="text-sm text-slate-700">
+                      {item}
+                    </li>
                   ))}
                 </ul>
-                <button
-                  onClick={() => completeOrder(order.id)}
-                  style={{ marginTop: "14px", padding: "8px", border: "1px solid #aaa", background: "#fff", cursor: "pointer", fontSize: "12px" }}
-                >
-                  Mark Complete
-                </button>
+                <div className="px-4 pb-4">
+                  <button
+                    onClick={() => completeOrder(order.id)}
+                    className="w-full py-2 bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors"
+                  >
+                    Mark Complete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Status bar */}
+      <footer className="bg-slate-700 px-6 py-1.5 shrink-0">
+        <p className="text-slate-300 text-xs">{orders.length} order{orders.length !== 1 ? "s" : ""} pending</p>
+      </footer>
     </div>
   );
 }

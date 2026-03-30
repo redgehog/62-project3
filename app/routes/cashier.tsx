@@ -2,22 +2,22 @@ import { useState } from "react";
 import type { Route } from "./+types/cashier";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Cashier" }];
+  return [{ title: "Cashier — Boba House" }];
 }
 
 const MENU_ITEMS = [
-  { id: 1,  name: "Black Tea",             price: 4.00 },
-  { id: 2,  name: "Green Tea",             price: 4.00 },
-  { id: 3,  name: "Oolong Tea",            price: 4.00 },
-  { id: 4,  name: "Chai Tea",              price: 4.00 },
-  { id: 5,  name: "Milk Tea",              price: 5.00 },
-  { id: 6,  name: "Boba Tea",              price: 5.00 },
-  { id: 7,  name: "Taro Milk Tea",         price: 5.00 },
-  { id: 8,  name: "Matcha Latte",          price: 5.00 },
-  { id: 9,  name: "Brown Sugar Milk Tea",  price: 5.00 },
-  { id: 10, name: "Strawberry Milk Tea",   price: 5.00 },
-  { id: 11, name: "Mango Milk Tea",        price: 5.00 },
-  { id: 12, name: "Peach Tea",             price: 4.00 },
+  { id: 1,  name: "Black Tea",            price: 4.00 },
+  { id: 2,  name: "Green Tea",            price: 4.00 },
+  { id: 3,  name: "Oolong Tea",           price: 4.00 },
+  { id: 4,  name: "Chai Tea",             price: 4.00 },
+  { id: 5,  name: "Milk Tea",             price: 5.00 },
+  { id: 6,  name: "Boba Tea",             price: 5.00 },
+  { id: 7,  name: "Taro Milk Tea",        price: 5.00 },
+  { id: 8,  name: "Matcha Latte",         price: 5.00 },
+  { id: 9,  name: "Brown Sugar Milk Tea", price: 5.00 },
+  { id: 10, name: "Strawberry Milk Tea",  price: 5.00 },
+  { id: 11, name: "Mango Milk Tea",       price: 5.00 },
+  { id: 12, name: "Peach Tea",            price: 4.00 },
 ];
 
 const TAX_RATE = 0.0825;
@@ -40,9 +40,7 @@ export default function Cashier() {
     });
   };
 
-  const removeItem = (id: number) => {
-    setOrderItems((prev) => prev.filter((o) => o.id !== id));
-  };
+  const removeItem = (id: number) => setOrderItems((prev) => prev.filter((o) => o.id !== id));
 
   const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
@@ -55,75 +53,84 @@ export default function Cashier() {
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="h-screen flex flex-col bg-slate-50">
+      {/* Header */}
+      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
+        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <span className="text-slate-300 text-sm font-medium">Cashier</span>
+      </header>
 
-      {/* HEADER */}
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid #ccc" }}>
-        <h1 style={{ fontSize: "20px", margin: 0 }}>Boba Shop POS</h1>
-      </div>
-
-      {/* BODY */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-        {/* MENU GRID */}
-        <div style={{ flex: 1, padding: "16px", overflowY: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+      {/* Body */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Menu grid */}
+        <div className="flex-1 p-5 overflow-y-auto">
+          <div className="grid grid-cols-3 gap-3">
             {MENU_ITEMS.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addItem(item)}
-                style={{ padding: "20px 10px", border: "1px solid #ccc", background: "#f9f9f9", cursor: "pointer", fontSize: "14px", textAlign: "center" }}
+                className="bg-white border border-slate-200 rounded-lg p-5 text-left hover:bg-blue-50 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors"
               >
-                <div>{item.name}</div>
-                <div style={{ marginTop: "6px", color: "#555" }}>${item.price.toFixed(2)}</div>
+                <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
               </button>
             ))}
           </div>
         </div>
 
-        {/* ORDER SUMMARY */}
-        <div style={{ width: "260px", borderLeft: "1px solid #ccc", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #ccc" }}>
-            <strong>Order Summary</strong>
+        {/* Order summary */}
+        <aside className="w-64 border-l border-slate-200 bg-white flex flex-col shrink-0">
+          <div className="px-4 py-3 border-b border-slate-200">
+            <h2 className="text-sm font-semibold text-slate-700">Order Summary</h2>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px" }}>
+          <div className="flex-1 overflow-y-auto px-4 py-2">
             {orderItems.length === 0 ? (
-              <p style={{ color: "#999", fontSize: "13px" }}>No items added yet.</p>
+              <p className="text-sm text-slate-400 mt-2">No items added yet.</p>
             ) : (
               orderItems.map((item) => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #eee", fontSize: "13px" }}>
-                  <span>{item.name} x{item.qty}</span>
-                  <span style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div key={item.id} className="flex items-center justify-between py-2 border-b border-slate-100 text-sm">
+                  <span className="text-slate-800">{item.name} ×{item.qty}</span>
+                  <span className="flex items-center gap-2 text-slate-700">
                     <span>${(item.price * item.qty).toFixed(2)}</span>
-                    <button onClick={() => removeItem(item.id)} style={{ border: "none", background: "none", cursor: "pointer", color: "#999", fontSize: "16px" }}>x</button>
+                    <button
+                      onClick={() => removeItem(item.id)}
+                      aria-label={`Remove ${item.name}`}
+                      className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded"
+                    >
+                      ✕
+                    </button>
                   </span>
                 </div>
               ))
             )}
           </div>
 
-          <div style={{ padding: "12px 16px", borderTop: "1px solid #ccc", fontSize: "13px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+          <div className="px-4 py-4 border-t border-slate-200 space-y-2 text-sm">
+            <div className="flex justify-between text-slate-600">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span>Tax/Tip</span><span>${tax.toFixed(2)}</span>
+            <div className="flex justify-between text-slate-600">
+              <span>Tax (8.25%)</span><span>${tax.toFixed(2)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: "15px", marginBottom: "12px" }}>
-              <span>TOTAL</span><span>${total.toFixed(2)}</span>
+            <div className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
+              <span>Total</span><span>${total.toFixed(2)}</span>
             </div>
             <button
               onClick={handleSubmit}
               disabled={orderItems.length === 0}
-              style={{ width: "100%", padding: "12px", background: orderItems.length === 0 ? "#ccc" : "#333", color: "#fff", border: "none", cursor: orderItems.length === 0 ? "not-allowed" : "pointer", fontSize: "14px" }}
+              className="w-full mt-2 py-2.5 rounded-lg font-semibold text-white transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700"
             >
               Submit Order
             </button>
           </div>
-        </div>
-
+        </aside>
       </div>
+
+      {/* Status bar */}
+      <footer className="bg-slate-700 px-6 py-1.5">
+        <p className="text-slate-300 text-xs">Cashier — click items to add to order</p>
+      </footer>
     </div>
   );
 }
