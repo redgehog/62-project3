@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import type { Route } from "./+types/kitchen";
 
 export function meta({}: Route.MetaArgs) {
@@ -21,6 +22,7 @@ const INITIAL_ORDERS: Order[] = [
 ];
 
 export default function Kitchen() {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
 
   const completeOrder = (id: number) => setOrders((prev) => prev.filter((o) => o.id !== id));
@@ -29,7 +31,7 @@ export default function Kitchen() {
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
       <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <button onClick={() => navigate("/portal")} className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
         <span className="text-slate-300 text-sm font-medium">Kitchen Display</span>
       </header>
 

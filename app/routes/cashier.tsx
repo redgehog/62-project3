@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import type { Route } from "./+types/cashier";
 
 export function meta({}: Route.MetaArgs) {
@@ -30,6 +31,7 @@ interface OrderItem {
 }
 
 export default function Cashier() {
+  const navigate = useNavigate();
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
   const addItem = (item: { id: number; name: string; price: number }) => {
@@ -56,7 +58,7 @@ export default function Cashier() {
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
       <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <button onClick={() => navigate("/portal")} className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
         <span className="text-slate-300 text-sm font-medium">Cashier</span>
       </header>
 

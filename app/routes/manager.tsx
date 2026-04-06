@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
 
@@ -51,6 +51,7 @@ type Tab = typeof TABS[number];
 
 export default function Manager() {
   const { dbCheck } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Inventory");
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
   const [selected, setSelected] = useState<number | null>(null);
@@ -85,7 +86,7 @@ export default function Manager() {
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
       <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+        <button onClick={() => navigate("/portal")} className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
         <span className="text-slate-300 text-sm font-medium">Manager</span>
       </header>
 
