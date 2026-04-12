@@ -39,7 +39,6 @@ export async function loader() {
 }
 
 const TABS = ["Inventory", "Menu", "Employees"] as const;
-type Tab = typeof TABS[number];
 
 export default function Manager() {
   const { inventory: initialInventory, employees } = useLoaderData<typeof loader>();
@@ -225,7 +224,7 @@ export default function Manager() {
 
       {/* STATUS BAR */}
       <div style={{ padding: "6px 20px", borderTop: "1px solid #ccc", fontSize: "12px", color: "#777" }}>
-        Manager — menu, inventory, employees &nbsp;|&nbsp; DB: {dbCheck?.db} @ {dbCheck?.time}
+        Manager — menu, inventory, employees
       </div>
     </div>
   );
