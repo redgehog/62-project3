@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLoaderData, useNavigate } from "react-router";
+import { useState, useEffect } from "react";
+import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
 
@@ -44,6 +44,7 @@ interface CartItem {
   cartKey:   string;
   id:        string;
   name:      string;
+  basePrice: number;
   price:     number;
   qty:       number;
   milkLevel: string;
@@ -88,13 +89,76 @@ export async function loader() {
   return { categories, menuItems };
 }
 
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const items = JSON.parse(formData.get("cart") as string) as Array<{
+    id: string; basePrice: number; qty: number;
+  }>;
+
+  if (!items.length) return { ok: false };
+
+  const [empRow, custRow] = await Promise.all([
+    pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
+    pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
+  ]);
+  const employeeId = empRow.rows[0]?.employee_id;
+  const customerId = custRow.rows[0]?.customer_id;
+  if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
+
+  // Group by item_id — same item with different customizations shares a DB row
+  const grouped: Record<string, { price: number; qty: number }> = {};
+  for (const item of items) {
+    if (grouped[item.id]) {
+      grouped[item.id].qty += item.qty;
+    } else {
+      grouped[item.id] = { price: item.basePrice, qty: item.qty };
+    }
+  }
+
+  const totalQty   = items.reduce((s, i) => s + i.qty, 0);
+  const totalPrice = items.reduce((s, i) => s + i.basePrice * i.qty, 0) * (1 + 0.0825);
+
+  const { rows } = await pool.query(
+    `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity)
+     VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4) RETURNING order_id`,
+    [employeeId, customerId, totalPrice.toFixed(2), totalQty]
+  );
+  const orderId = rows[0].order_id;
+
+  for (const [itemId, { price, qty }] of Object.entries(grouped)) {
+    await pool.query(
+      `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
+       VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
+      [orderId, itemId, qty, price.toFixed(2)]
+    );
+    await pool.query(
+      `UPDATE "Item"
+       SET quantity  = GREATEST(quantity - $1, 0),
+           is_active = CASE WHEN (quantity - $1) < min_quantity THEN false ELSE is_active END
+       WHERE item_id = $2::uuid`,
+      [qty, itemId]
+    );
+  }
+
+  return { ok: true };
+}
+
 export default function Customer() {
   const navigate = useNavigate();
   const { categories, menuItems } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher<typeof action>();
 
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [showCart, setShowCart]             = useState(false);
+
+  // Clear cart on successful order
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
+      setCart([]);
+      setShowCart(false);
+    }
+  }, [fetcher.state, fetcher.data]);
   const [selectedItem, setSelectedItem]         = useState<MenuItem | null>(null);
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
@@ -127,6 +191,7 @@ export default function Customer() {
         cartKey: key,
         id: selectedItem.id,
         name: selectedItem.name,
+        basePrice: selectedItem.price,
         price: itemTotal,
         qty: 1,
         milkLevel,
@@ -225,11 +290,20 @@ export default function Customer() {
                   <span>Total</span><span>${total.toFixed(2)}</span>
                 </div>
                 <button
-                  onClick={() => { alert("Order placed!"); setCart([]); setShowCart(false); }}
-                  className="mt-4 w-full py-3 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white font-semibold rounded-lg transition-colors"
+                  onClick={() => fetcher.submit(
+                    { cart: JSON.stringify(cart.map((i) => ({ id: i.id, basePrice: i.basePrice, qty: i.qty }))) },
+                    { method: "post" }
+                  )}
+                  disabled={fetcher.state !== "idle"}
+                  className="mt-4 w-full py-3 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                 >
-                  Place Order
+                  {fetcher.state !== "idle" ? "Placing order…" : "Place Order"}
                 </button>
+                {fetcher.data && !fetcher.data.ok && (
+                  <p className="text-xs text-red-600 mt-2 text-center">
+                    {"error" in fetcher.data ? fetcher.data.error : "Failed to place order"}
+                  </p>
+                )}
               </>
             )}
           </div>

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLoaderData, useNavigate } from "react-router";
+import { useState, useEffect } from "react";
+import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
 
@@ -39,6 +39,51 @@ export async function loader() {
   return { categories, byCategory };
 }
 
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const items = JSON.parse(formData.get("cart") as string) as Array<{
+    id: string; price: number; qty: number;
+  }>;
+
+  if (!items.length) return { ok: false };
+
+  const [empRow, custRow] = await Promise.all([
+    pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
+    pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
+  ]);
+  const employeeId = empRow.rows[0]?.employee_id;
+  const customerId = custRow.rows[0]?.customer_id;
+  if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
+
+  const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const totalPrice = subtotal * (1 + 0.0825);
+  const totalQty   = items.reduce((s, i) => s + i.qty, 0);
+
+  const { rows } = await pool.query(
+    `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity)
+     VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4) RETURNING order_id`,
+    [employeeId, customerId, totalPrice.toFixed(2), totalQty]
+  );
+  const orderId = rows[0].order_id;
+
+  for (const item of items) {
+    await pool.query(
+      `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
+       VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
+      [orderId, item.id, item.qty, item.price.toFixed(2)]
+    );
+    await pool.query(
+      `UPDATE "Item"
+       SET quantity  = GREATEST(quantity - $1, 0),
+           is_active = CASE WHEN (quantity - $1) < min_quantity THEN false ELSE is_active END
+       WHERE item_id = $2::uuid`,
+      [item.qty, item.id]
+    );
+  }
+
+  return { ok: true };
+}
+
 const TAX_RATE = 0.0825;
 
 interface OrderItem {
@@ -51,8 +96,16 @@ interface OrderItem {
 export default function Cashier() {
   const navigate = useNavigate();
   const { categories, byCategory } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher<typeof action>();
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+
+  // Clear cart on successful order
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
+      setOrderItems([]);
+    }
+  }, [fetcher.state, fetcher.data]);
 
   const addItem = (item: { id: string; name: string; price: number }) => {
     setOrderItems((prev) => {
@@ -67,11 +120,14 @@ export default function Cashier() {
   const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
+  const submitting = fetcher.state !== "idle";
 
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
-    alert(`Order submitted! Total: $${total.toFixed(2)}`);
-    setOrderItems([]);
+    fetcher.submit(
+      { cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))) },
+      { method: "post" }
+    );
   };
 
   const items = byCategory[activeCategory] ?? [];
@@ -160,11 +216,16 @@ export default function Cashier() {
             </div>
             <button
               onClick={handleSubmit}
-              disabled={orderItems.length === 0}
+              disabled={orderItems.length === 0 || submitting}
               className="w-full mt-2 py-2.5 rounded-lg font-semibold text-white transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700"
             >
-              Submit Order
+              {submitting ? "Submitting…" : "Submit Order"}
             </button>
+            {fetcher.data && !fetcher.data.ok && (
+              <p className="text-xs text-red-600 mt-1 text-center">
+                {"error" in fetcher.data ? fetcher.data.error : "Failed to submit order"}
+              </p>
+            )}
           </div>
         </aside>
       </div>
