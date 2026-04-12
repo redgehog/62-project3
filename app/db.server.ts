@@ -11,4 +11,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+pool.query(`
+  ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS is_seasonal boolean NOT NULL DEFAULT false
+`).catch(console.error);
+
 export default pool;

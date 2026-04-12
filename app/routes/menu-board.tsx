@@ -8,7 +8,8 @@ export function meta({}: Route.MetaArgs) {
 
 export async function loader() {
   const result = await pool.query(
-    `SELECT name, category, price::float AS price
+    `SELECT name, category, price::float AS price,
+            COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -22,7 +23,15 @@ export async function loader() {
       menu[row.category] = [];
       categories.push(row.category);
     }
-    menu[row.category].push({ name: row.name, price: Number(row.price) });
+    const item = { name: row.name, price: Number(row.price) };
+    menu[row.category].push(item);
+    if (row.isSeasonal) {
+      if (!menu["Seasonal"]) {
+        menu["Seasonal"] = [];
+        categories.push("Seasonal");
+      }
+      menu["Seasonal"].push(item);
+    }
   }
 
   return { categories, menu };
@@ -50,7 +59,7 @@ export default function MenuBoard() {
             className={`flex flex-col overflow-y-auto px-8 py-8 ${i < categories.length - 1 ? "border-r border-slate-700" : ""}`}
           >
             <h2 className="text-blue-400 text-xl font-bold uppercase tracking-widest mb-6 pb-3 border-b border-slate-700">
-              {cat}
+              {cat === "Seasonal" ? "🍂 Seasonal" : cat}
             </h2>
             <ul className="flex flex-col gap-5" role="list">
               {menu[cat].map((item) => (

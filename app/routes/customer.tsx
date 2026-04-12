@@ -53,7 +53,8 @@ interface CartItem {
 
 export async function loader() {
   const result = await pool.query(
-    `SELECT item_id::text AS id, name, category, price::float AS price, milk
+    `SELECT item_id::text AS id, name, category, price::float AS price, milk,
+            COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -67,13 +68,21 @@ export async function loader() {
       menuItems[row.category] = [];
       categories.push(row.category);
     }
-    menuItems[row.category].push({
-      id:       row.id,
-      name:     row.name,
-      price:    Number(row.price),
+    const item: MenuItem = {
+      id:        row.id,
+      name:      row.name,
+      price:     Number(row.price),
       allergens: [],
-      hasMilk:  !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
-    });
+      hasMilk:   !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
+    };
+    menuItems[row.category].push(item);
+    if (row.isSeasonal) {
+      if (!menuItems["Seasonal"]) {
+        menuItems["Seasonal"] = [];
+        categories.push("Seasonal");
+      }
+      menuItems["Seasonal"].push(item);
+    }
   }
 
   return { categories, menuItems };

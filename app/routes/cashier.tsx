@@ -9,12 +9,34 @@ export function meta({}: Route.MetaArgs) {
 
 export async function loader() {
   const result = await pool.query(
-    `SELECT item_id::text AS id, name, price::float AS price
+    `SELECT item_id::text AS id, name, category, price::float AS price,
+            COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
   );
-  return { menuItems: result.rows as { id: string; name: string; price: number }[] };
+
+  const rows = result.rows as { id: string; name: string; category: string; price: number; isSeasonal: boolean }[];
+  const byCategory: Record<string, { id: string; name: string; price: number }[]> = {};
+  const categories: string[] = [];
+
+  for (const row of rows) {
+    if (!byCategory[row.category]) {
+      byCategory[row.category] = [];
+      categories.push(row.category);
+    }
+    const item = { id: row.id, name: row.name, price: row.price };
+    byCategory[row.category].push(item);
+    if (row.isSeasonal) {
+      if (!byCategory["Seasonal"]) {
+        byCategory["Seasonal"] = [];
+        categories.push("Seasonal");
+      }
+      byCategory["Seasonal"].push(item);
+    }
+  }
+
+  return { categories, byCategory };
 }
 
 const TAX_RATE = 0.0825;
@@ -28,7 +50,8 @@ interface OrderItem {
 
 export default function Cashier() {
   const navigate = useNavigate();
-  const { menuItems } = useLoaderData<typeof loader>();
+  const { categories, byCategory } = useLoaderData<typeof loader>();
+  const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
   const addItem = (item: { id: string; name: string; price: number }) => {
@@ -51,6 +74,8 @@ export default function Cashier() {
     setOrderItems([]);
   };
 
+  const items = byCategory[activeCategory] ?? [];
+
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
@@ -59,12 +84,30 @@ export default function Cashier() {
         <span className="text-slate-300 text-sm font-medium">Cashier</span>
       </header>
 
+      {/* Category tabs */}
+      <nav className="bg-white border-b border-slate-200 flex shrink-0 overflow-x-auto" aria-label="Menu categories">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
+            aria-pressed={activeCategory === cat}
+            className={`flex-1 min-w-max py-3 px-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
+              ${activeCategory === cat
+                ? "border-blue-600 text-blue-700 bg-blue-50"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+              }`}
+          >
+            {cat === "Seasonal" ? "🍂 Seasonal" : cat}
+          </button>
+        ))}
+      </nav>
+
       {/* Body */}
       <div className="flex-1 flex overflow-hidden">
         {/* Menu grid */}
         <div className="flex-1 p-5 overflow-y-auto">
           <div className="grid grid-cols-3 gap-3">
-            {menuItems.map((item) => (
+            {items.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addItem(item)}
