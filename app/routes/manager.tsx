@@ -90,7 +90,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "toggle-menu") {
     const id = formData.get("id") as string;
-    // Allow enabling only when quantity >= min_quantity
     await pool.query(
       `UPDATE "Item"
        SET is_active = CASE
@@ -104,10 +103,98 @@ export async function action({ request }: Route.ActionArgs) {
     return { ok: true };
   }
 
+  if (intent === "toggle-seasonal") {
+    const id = formData.get("id") as string;
+    await pool.query(`UPDATE "Item" SET is_seasonal = NOT is_seasonal WHERE item_id = $1::uuid`, [id]);
+    return { ok: true };
+  }
+
+  if (intent === "x-report") {
+    const today = new Date().toISOString().slice(0, 10);
+    const hourly = await pool.query(
+      `SELECT EXTRACT(HOUR FROM event_time)::int AS hr,
+              COUNT(*)::int AS sales_count,
+              COALESCE(SUM(amount), 0)::float AS sales_total,
+              COALESCE(SUM(tax_amount), 0)::float AS tax_total
+         FROM pos_sales_activity
+        WHERE business_date = $1 AND activity_type = 'SALE'
+     GROUP BY hr ORDER BY hr`,
+      [today]
+    );
+    const totals = await pool.query(
+      `SELECT COUNT(*)::int AS sales_count,
+              COALESCE(SUM(amount), 0)::float AS sales_total,
+              COALESCE(SUM(tax_amount), 0)::float AS tax_total,
+              COALESCE(SUM(CASE WHEN LOWER(payment_method)='cash' THEN amount ELSE 0 END), 0)::float AS cash_total,
+              COALESCE(SUM(CASE WHEN LOWER(payment_method)<>'cash' THEN amount ELSE 0 END), 0)::float AS non_cash_total,
+              COALESCE(SUM(item_count), 0)::int AS item_count
+         FROM pos_sales_activity
+        WHERE business_date = $1 AND activity_type = 'SALE'`,
+      [today]
+    );
+    const lines: string[] = [`X REPORT`, `Business date: ${today}`, ``];
+    lines.push(`${"Hour".padEnd(8)}${"Sales".padEnd(8)}${"Revenue".padEnd(14)}Tax`);
+    for (const r of hourly.rows) {
+      lines.push(`${String(r.hr).padStart(2, "0")}:00   ${String(r.sales_count).padEnd(8)}$${Number(r.sales_total).toFixed(2).padEnd(13)} $${Number(r.tax_total).toFixed(2)}`);
+    }
+    if (hourly.rows.length === 0) lines.push("(no sales recorded today)");
+    const t = totals.rows[0];
+    lines.push(``, `Totals`, `Sales: ${t.sales_count}`, `Items sold: ${t.item_count}`,
+      `Revenue: $${Number(t.sales_total).toFixed(2)}`, `Tax: $${Number(t.tax_total).toFixed(2)}`,
+      `Returns: 0  Voids: 0  Discards: 0`,
+      `Cash payments: $${Number(t.cash_total).toFixed(2)}`,
+      `Other payments: $${Number(t.non_cash_total).toFixed(2)}`);
+    return { ok: true, report: lines.join("\n") };
+  }
+
+  if (intent === "z-report-view") {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await pool.query(`SELECT report_text FROM pos_z_report WHERE report_date = $1`, [today]);
+    const text = result.rows[0]?.report_text;
+    return { ok: true, report: text ?? `Z REPORT\nBusiness date: ${today}\n\nNo Z-report generated yet today.` };
+  }
+
+  if (intent === "z-report-generate") {
+    const today = new Date().toISOString().slice(0, 10);
+    const existing = await pool.query(`SELECT report_text FROM pos_z_report WHERE report_date = $1`, [today]);
+    if (existing.rows.length > 0) {
+      return { ok: true, report: (existing.rows[0].report_text || "") + "\n\n(Already generated today — Z can only run once per business date.)" };
+    }
+    const totals = await pool.query(
+      `SELECT COUNT(*)::int AS sales_count,
+              COALESCE(SUM(amount), 0)::float AS sales_total,
+              COALESCE(SUM(tax_amount), 0)::float AS tax_total,
+              COALESCE(SUM(CASE WHEN LOWER(payment_method)='cash' THEN amount ELSE 0 END), 0)::float AS cash_total,
+              COALESCE(SUM(CASE WHEN LOWER(payment_method)<>'cash' THEN amount ELSE 0 END), 0)::float AS non_cash_total,
+              COALESCE(SUM(item_count), 0)::int AS item_count
+         FROM pos_sales_activity
+        WHERE business_date = $1 AND activity_type = 'SALE'`,
+      [today]
+    );
+    const t = totals.rows[0];
+    const reportText = [
+      `Z REPORT`, `Business date: ${today}`, ``,
+      `Sales count: ${t.sales_count}`,
+      `Items sold: ${t.item_count}`,
+      `Gross sales: $${Number(t.sales_total).toFixed(2)}`,
+      `Tax: $${Number(t.tax_total).toFixed(2)}`,
+      `Cash total: $${Number(t.cash_total).toFixed(2)}`,
+      `Other payments: $${Number(t.non_cash_total).toFixed(2)}`,
+      `Discounts: $0.00  Voids: 0  Service charges: $0.00`,
+      ``, `Employee signature: __________________________`,
+    ].join("\n");
+    await pool.query(
+      `INSERT INTO pos_z_report (report_date, report_text) VALUES ($1, $2)`,
+      [today, reportText]
+    );
+    await pool.query(`DELETE FROM pos_sales_activity WHERE business_date = $1`, [today]);
+    return { ok: true, report: reportText + "\n\nX/Z counters reset for next business day." };
+  }
+
   return { ok: false };
 }
 
-const TABS = ["Inventory", "Menu", "Employees"] as const;
+const TABS = ["Inventory", "Menu", "Employees", "Reports"] as const;
 
 const inputCls = "border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 w-full focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600";
 
@@ -140,14 +227,22 @@ export default function Manager() {
   const [editItem, setEditItem]       = useState<InventoryItem | null>(null);
   const [addForm, setAddForm]         = useState({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
   const [editSeasonal, setEditSeasonal] = useState(false);
+  const [xReport, setXReport]           = useState<string | null>(null);
+  const [zReport, setZReport]           = useState<string | null>(null);
 
-  // Close modals and clear selection after successful mutation
+  // Close modals after add/edit; update report text when returned
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
-      setShowAdd(false);
-      setEditItem(null);
-      setSelected(null);
-      setAddForm({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
+      if ("report" in (fetcher.data as object)) {
+        const d = fetcher.data as { ok: boolean; report: string };
+        // Decide which panel to update based on report content
+        if (d.report.startsWith("X REPORT")) setXReport(d.report);
+        else setZReport(d.report);
+      } else {
+        setShowAdd(false);
+        setEditItem(null);
+        setAddForm({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
+      }
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -241,9 +336,19 @@ export default function Manager() {
                           {item.quantity}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{item.minQuantity}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.isSeasonal ? "Yes" : "—"}</td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${item.onMenu ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                        <td
+                          className="px-4 py-3"
+                          onClick={(e) => { e.stopPropagation(); fetcher.submit({ intent: "toggle-seasonal", id: item.id }, { method: "post" }); }}
+                        >
+                          <span className={`cursor-pointer inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${item.isSeasonal ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                            {item.isSeasonal ? "Yes" : "—"}
+                          </span>
+                        </td>
+                        <td
+                          className="px-4 py-3"
+                          onClick={(e) => { e.stopPropagation(); fetcher.submit({ intent: "toggle-menu", id: item.id }, { method: "post" }); }}
+                        >
+                          <span className={`cursor-pointer inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${item.onMenu ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                             {item.onMenu ? "On" : "Off"}
                           </span>
                         </td>
@@ -339,12 +444,73 @@ export default function Manager() {
             </section>
           )}
 
+          {activeTab === "Reports" && (
+            <section aria-label="Reports">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Reports</h2>
+              <div className="grid grid-cols-2 gap-6">
+
+                {/* X Report */}
+                <div className="bg-white rounded-lg border border-slate-200 p-5 flex flex-col gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">X Report</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Hourly sales totals for today. Non-destructive — safe to run any time.</p>
+                  </div>
+                  <button
+                    onClick={() => fetcher.submit({ intent: "x-report" }, { method: "post" })}
+                    disabled={busy}
+                    className="self-start px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {busy ? "Generating…" : "Generate X Report"}
+                  </button>
+                  {xReport && (
+                    <pre className="text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-4 whitespace-pre-wrap overflow-x-auto">
+                      {xReport}
+                    </pre>
+                  )}
+                </div>
+
+                {/* Z Report */}
+                <div className="bg-white rounded-lg border border-slate-200 p-5 flex flex-col gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">Z Report</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">End-of-day close-out. Saves the report and resets today's X-report counters. Run once per day at close.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => fetcher.submit({ intent: "z-report-view" }, { method: "post" })}
+                      disabled={busy}
+                      className="px-4 py-1.5 bg-white border border-slate-300 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      View today's Z Report
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!confirm("Run Z Report for today?\n\nThis resets the X-report counters and should only be done once per business day at close.")) return;
+                        fetcher.submit({ intent: "z-report-generate" }, { method: "post" });
+                      }}
+                      disabled={busy}
+                      className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Run Z Report (close of day)
+                    </button>
+                  </div>
+                  {zReport && (
+                    <pre className="text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-4 whitespace-pre-wrap overflow-x-auto">
+                      {zReport}
+                    </pre>
+                  )}
+                </div>
+
+              </div>
+            </section>
+          )}
+
         </main>
       </div>
 
       {/* Status bar */}
       <footer style={{ padding: "6px 20px", borderTop: "1px solid #ccc", fontSize: "12px", color: "#777" }}>
-        Manager — menu, inventory, employees
+        Manager — menu, inventory, employees, reports
       </footer>
 
       {/* Add Item Modal */}

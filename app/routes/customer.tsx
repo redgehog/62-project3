@@ -140,6 +140,15 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  const subtotal = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
+  const taxAmount = (totalPrice - subtotal).toFixed(2);
+  await pool.query(
+    `INSERT INTO pos_sales_activity
+     (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
+     VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
+    [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
+  );
+
   return { ok: true };
 }
 
