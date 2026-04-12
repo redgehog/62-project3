@@ -1,30 +1,26 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/cashier";
+import pool from "../db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
 }
 
-const MENU_ITEMS = [
-  { id: 1,  name: "Black Tea",            price: 4.00 },
-  { id: 2,  name: "Green Tea",            price: 4.00 },
-  { id: 3,  name: "Oolong Tea",           price: 4.00 },
-  { id: 4,  name: "Chai Tea",             price: 4.00 },
-  { id: 5,  name: "Milk Tea",             price: 5.00 },
-  { id: 6,  name: "Boba Tea",             price: 5.00 },
-  { id: 7,  name: "Taro Milk Tea",        price: 5.00 },
-  { id: 8,  name: "Matcha Latte",         price: 5.00 },
-  { id: 9,  name: "Brown Sugar Milk Tea", price: 5.00 },
-  { id: 10, name: "Strawberry Milk Tea",  price: 5.00 },
-  { id: 11, name: "Mango Milk Tea",       price: 5.00 },
-  { id: 12, name: "Peach Tea",            price: 4.00 },
-];
+export async function loader() {
+  const result = await pool.query(
+    `SELECT item_id::text AS id, name, price::float AS price
+     FROM "Item"
+     WHERE is_active = true
+     ORDER BY category, name`
+  );
+  return { menuItems: result.rows as { id: string; name: string; price: number }[] };
+}
 
 const TAX_RATE = 0.0825;
 
 interface OrderItem {
-  id: number;
+  id: string;
   name: string;
   price: number;
   qty: number;
@@ -32,9 +28,10 @@ interface OrderItem {
 
 export default function Cashier() {
   const navigate = useNavigate();
+  const { menuItems } = useLoaderData<typeof loader>();
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
-  const addItem = (item: { id: number; name: string; price: number }) => {
+  const addItem = (item: { id: string; name: string; price: number }) => {
     setOrderItems((prev) => {
       const existing = prev.find((o) => o.id === item.id);
       if (existing) return prev.map((o) => o.id === item.id ? { ...o, qty: o.qty + 1 } : o);
@@ -42,7 +39,7 @@ export default function Cashier() {
     });
   };
 
-  const removeItem = (id: number) => setOrderItems((prev) => prev.filter((o) => o.id !== id));
+  const removeItem = (id: string) => setOrderItems((prev) => prev.filter((o) => o.id !== id));
 
   const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
@@ -67,7 +64,7 @@ export default function Cashier() {
         {/* Menu grid */}
         <div className="flex-1 p-5 overflow-y-auto">
           <div className="grid grid-cols-3 gap-3">
-            {MENU_ITEMS.map((item) => (
+            {menuItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addItem(item)}

@@ -7,58 +7,49 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager" }];
 }
 
-export async function loader() {
-  const result = await pool.query("SELECT current_database() AS db, now()::text AS time");
-  return { dbCheck: result.rows[0] };
-}
-
 interface InventoryItem {
-  id: number;
-  name: string;
+  id:       string;
+  name:     string;
   category: string;
-  qty: number;
-  min: number;
-  onMenu: boolean;
+  price:    number;
+  onMenu:   boolean;
 }
 
 interface Employee {
-  id: number;
-  name: string;
-  role: string;
-  hours: number;
+  id:         string;
+  name:       string;
+  start_date: string;
 }
 
-const INITIAL_INVENTORY: InventoryItem[] = [
-  { id: 1, name: "Passion Fruit",        category: "Milk Tea",   qty: 145, min: 10, onMenu: true  },
-  { id: 2, name: "Matcha Latte",         category: "Specialty",  qty: 16,  min: 10, onMenu: true  },
-  { id: 3, name: "Peach Milk Tea",       category: "Milk Tea",   qty: 20,  min: 10, onMenu: true  },
-  { id: 4, name: "Wintermelon Milk Tea", category: "Milk Tea",   qty: 20,  min: 10, onMenu: true  },
-  { id: 5, name: "Honeydew Milk Tea",    category: "Milk Tea",   qty: 16,  min: 10, onMenu: true  },
-  { id: 6, name: "Mango Milk Tea",       category: "Milk Tea",   qty: 16,  min: 10, onMenu: true  },
-  { id: 7, name: "Classic Milk Tea",     category: "Milk Tea",   qty: 19,  min: 10, onMenu: true  },
-  { id: 8, name: "Grape Chia",           category: "Milk Tea",   qty: 199, min: 10, onMenu: true  },
-  { id: 9, name: "Jasmine Green Tea",    category: "Brewed Tea", qty: 3,   min: 10, onMenu: true  },
-];
-
-const INITIAL_EMPLOYEES: Employee[] = [
-  { id: 1, name: "Alice Johnson", role: "Cashier", hours: 32 },
-  { id: 2, name: "Bob Smith",     role: "Kitchen", hours: 28 },
-  { id: 3, name: "Carol Lee",     role: "Manager", hours: 40 },
-];
+export async function loader() {
+  const [itemsResult, employeesResult] = await Promise.all([
+    pool.query(
+      `SELECT item_id::text AS id, name, category, price::float AS price, is_active AS "onMenu"
+       FROM "Item" ORDER BY category, name`
+    ),
+    pool.query(
+      `SELECT employee_id::text AS id, name, start_date::text
+       FROM "Employee" ORDER BY name`
+    ),
+  ]);
+  return {
+    inventory: itemsResult.rows as InventoryItem[],
+    employees: employeesResult.rows as Employee[],
+  };
+}
 
 const TABS = ["Inventory", "Menu", "Employees"] as const;
 type Tab = typeof TABS[number];
 
 export default function Manager() {
-  const { dbCheck } = useLoaderData<typeof loader>();
+  const { inventory: initialInventory, employees } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Inventory");
-  const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [newItem, setNewItem] = useState({ name: "", category: "", qty: "", min: "" });
-  const [employees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [newItem, setNewItem] = useState({ name: "", category: "", price: "" });
 
-  const handleSelect = (id: number) => setSelected(selected === id ? null : id);
+  const handleSelect = (id: string) => setSelected(selected === id ? null : id);
 
   const handleDelete = () => {
     if (selected === null) return;
@@ -68,15 +59,15 @@ export default function Manager() {
 
   const handleAdd = () => {
     if (!newItem.name || !newItem.category) return;
-    const nextId = inventory.length ? Math.max(...inventory.map((i) => i.id)) + 1 : 1;
+    const tempId = `temp-${Date.now()}`;
     setInventory((prev) => [
       ...prev,
-      { id: nextId, name: newItem.name, category: newItem.category, qty: Number(newItem.qty) || 0, min: Number(newItem.min) || 0, onMenu: false },
+      { id: tempId, name: newItem.name, category: newItem.category, price: Number(newItem.price) || 0, onMenu: false },
     ]);
-    setNewItem({ name: "", category: "", qty: "", min: "" });
+    setNewItem({ name: "", category: "", price: "" });
   };
 
-  const toggleMenu = (id: number) =>
+  const toggleMenu = (id: string) =>
     setInventory((prev) => prev.map((i) => i.id === id ? { ...i, onMenu: !i.onMenu } : i));
 
   const inputCls = "border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600";
@@ -121,11 +112,9 @@ export default function Manager() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Category</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Qty</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Min</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Price</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
                     </tr>
                   </thead>
@@ -140,11 +129,9 @@ export default function Manager() {
                         className={`cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
                           ${selected === item.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
                       >
-                        <td className="px-4 py-3 text-slate-600">{item.id}</td>
                         <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
                         <td className="px-4 py-3 text-slate-600">{item.category}</td>
-                        <td className={`px-4 py-3 font-medium ${item.qty <= item.min ? "text-red-600" : "text-slate-800"}`}>{item.qty}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.min}</td>
+                        <td className="px-4 py-3 text-slate-800">${Number(item.price).toFixed(2)}</td>
                         <td className="px-4 py-3 text-slate-600">{item.onMenu ? "Yes" : "—"}</td>
                       </tr>
                     ))}
@@ -173,12 +160,8 @@ export default function Manager() {
                     <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} placeholder="Category" className={inputCls} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-slate-600">Qty</label>
-                    <input value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} placeholder="0" className={`${inputCls} w-20`} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-slate-600">Minimum</label>
-                    <input value={newItem.min} onChange={(e) => setNewItem({ ...newItem, min: e.target.value })} placeholder="0" className={`${inputCls} w-20`} />
+                    <label className="text-xs font-medium text-slate-600">Price</label>
+                    <input value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} placeholder="0.00" className={`${inputCls} w-24`} />
                   </div>
                   <button onClick={handleAdd} className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors">
                     Add
@@ -221,19 +204,15 @@ export default function Manager() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Hours This Week</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Start Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {employees.map((emp) => (
                       <tr key={emp.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-600">{emp.id}</td>
                         <td className="px-4 py-3 text-slate-900 font-medium">{emp.name}</td>
-                        <td className="px-4 py-3 text-slate-700">{emp.role}</td>
-                        <td className="px-4 py-3 text-slate-700">{emp.hours}</td>
+                        <td className="px-4 py-3 text-slate-700">{emp.start_date}</td>
                       </tr>
                     ))}
                   </tbody>

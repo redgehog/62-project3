@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/customer";
+import pool from "../db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Order — Boba House" }];
 }
 
-const MILK_LEVELS = ["None", "Light", "Regular", "Extra"];
+const MILK_TYPES = ["Whole Milk", "Oat Milk", "Almond Milk", "Soy Milk", "No Milk"];
 const ICE_LEVELS  = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
 
 const ALLERGEN_ICONS: Record<string, string> = {
@@ -18,79 +19,98 @@ const ALLERGEN_ICONS: Record<string, string> = {
 };
 
 interface MenuItem {
-  id:        number;
+  id:        string;
   name:      string;
   price:     number;
   allergens: string[];
   hasMilk:   boolean;
 }
 
-const CATEGORIES = ["Milk Teas", "Fruit Teas", "Smoothies", "Toppings", "Combos"];
+interface Topping {
+  id:        number;
+  name:      string;
+  price:     number;
+  allergens: string[];
+}
 
-const MENU_ITEMS: Record<string, MenuItem[]> = {
-  "Milk Teas": [
-    { id: 1,  name: "Classic Milk Tea",     price: 5.00, allergens: ["dairy", "gluten"],       hasMilk: true  },
-    { id: 2,  name: "Taro Milk Tea",        price: 5.00, allergens: ["dairy", "gluten"],       hasMilk: true  },
-    { id: 3,  name: "Brown Sugar Milk Tea", price: 5.00, allergens: ["dairy", "gluten"],       hasMilk: true  },
-    { id: 4,  name: "Mango Milk Tea",       price: 5.00, allergens: ["dairy", "soy"],          hasMilk: true  },
-    { id: 5,  name: "Strawberry Milk Tea",  price: 5.00, allergens: ["dairy"],                 hasMilk: true  },
-    { id: 6,  name: "Honeydew Milk Tea",    price: 5.00, allergens: ["dairy", "soy"],          hasMilk: true  },
-  ],
-  "Fruit Teas": [
-    { id: 7,  name: "Peach Tea",            price: 4.00, allergens: [],                        hasMilk: false },
-    { id: 8,  name: "Lychee Tea",           price: 4.00, allergens: [],                        hasMilk: false },
-    { id: 9,  name: "Passion Fruit Tea",    price: 4.00, allergens: [],                        hasMilk: false },
-    { id: 10, name: "Mango Green Tea",      price: 4.00, allergens: [],                        hasMilk: false },
-  ],
-  "Smoothies": [
-    { id: 11, name: "Strawberry Smoothie",  price: 5.50, allergens: ["dairy", "soy"],          hasMilk: true  },
-    { id: 12, name: "Mango Smoothie",       price: 5.50, allergens: ["dairy"],                 hasMilk: true  },
-    { id: 13, name: "Taro Smoothie",        price: 5.50, allergens: ["dairy", "soy"],          hasMilk: true  },
-  ],
-  "Toppings": [
-    { id: 14, name: "Boba",                 price: 0.75, allergens: ["gluten"],                hasMilk: false },
-    { id: 15, name: "Lychee Jelly",         price: 0.75, allergens: [],                        hasMilk: false },
-    { id: 16, name: "Grass Jelly",          price: 0.75, allergens: [],                        hasMilk: false },
-    { id: 17, name: "Pudding",              price: 0.75, allergens: ["dairy", "eggs"],         hasMilk: false },
-  ],
-  "Combos": [
-    { id: 18, name: "Combo A",              price: 9.00, allergens: ["dairy", "gluten"],       hasMilk: true  },
-    { id: 19, name: "Combo B",              price: 9.00, allergens: ["dairy"],                 hasMilk: true  },
-    { id: 20, name: "Combo C",              price: 9.00, allergens: ["dairy", "soy"],          hasMilk: true  },
-  ],
-};
+const TOPPINGS: Topping[] = [
+  { id: 14, name: "Boba",         price: 0.75, allergens: ["gluten"]        },
+  { id: 15, name: "Lychee Jelly", price: 0.75, allergens: []                },
+  { id: 16, name: "Grass Jelly",  price: 0.75, allergens: []                },
+  { id: 17, name: "Pudding",      price: 0.75, allergens: ["dairy", "eggs"] },
+];
 
 interface CartItem {
   cartKey:   string;
-  id:        number;
+  id:        string;
   name:      string;
   price:     number;
   qty:       number;
   milkLevel: string;
   iceLevel:  string;
+  toppings:  Topping[];
+}
+
+export async function loader() {
+  const result = await pool.query(
+    `SELECT item_id::text AS id, name, category, price::float AS price, milk
+     FROM "Item"
+     WHERE is_active = true
+     ORDER BY category, name`
+  );
+
+  const menuItems: Record<string, MenuItem[]> = {};
+  const categories: string[] = [];
+
+  for (const row of result.rows) {
+    if (!menuItems[row.category]) {
+      menuItems[row.category] = [];
+      categories.push(row.category);
+    }
+    menuItems[row.category].push({
+      id:       row.id,
+      name:     row.name,
+      price:    Number(row.price),
+      allergens: [],
+      hasMilk:  !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
+    });
+  }
+
+  return { categories, menuItems };
 }
 
 export default function Customer() {
   const navigate = useNavigate();
+  const { categories, menuItems } = useLoaderData<typeof loader>();
 
-  const [activeCategory, setActiveCategory] = useState("Milk Teas");
+  const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [showCart, setShowCart]             = useState(false);
-  const [selectedItem, setSelectedItem]     = useState<MenuItem | null>(null);
-  const [milkLevel, setMilkLevel]           = useState("Regular");
-  const [iceLevel, setIceLevel]             = useState("Regular");
+  const [selectedItem, setSelectedItem]         = useState<MenuItem | null>(null);
+  const [milkLevel, setMilkLevel]               = useState("Whole Milk");
+  const [iceLevel, setIceLevel]                 = useState("Regular");
+  const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
 
   const openItem = (item: MenuItem) => {
     setSelectedItem(item);
     setMilkLevel("Regular");
     setIceLevel("Regular");
+    setSelectedToppings([]);
   };
 
   const closePopup = () => setSelectedItem(null);
 
+  const toggleTopping = (id: number) =>
+    setSelectedToppings((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+
   const confirmAddToCart = () => {
     if (!selectedItem) return;
-    const key = `${selectedItem.id}-${milkLevel}-${iceLevel}`;
+    const toppings = TOPPINGS.filter((t) => selectedToppings.includes(t.id));
+    const toppingIds = toppings.map((t) => t.id).sort().join(",");
+    const key = `${selectedItem.id}-${milkLevel}-${iceLevel}-${toppingIds}`;
+    const itemTotal = selectedItem.price + toppings.reduce((s, t) => s + t.price, 0);
     setCart((prev) => {
       const existing = prev.find((c) => c.cartKey === key);
       if (existing) return prev.map((c) => c.cartKey === key ? { ...c, qty: c.qty + 1 } : c);
@@ -98,10 +118,11 @@ export default function Customer() {
         cartKey: key,
         id: selectedItem.id,
         name: selectedItem.name,
-        price: selectedItem.price,
+        price: itemTotal,
         qty: 1,
         milkLevel,
         iceLevel,
+        toppings,
       }];
     });
     closePopup();
@@ -112,7 +133,7 @@ export default function Customer() {
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const total      = cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const items      = MENU_ITEMS[activeCategory] ?? [];
+  const items      = menuItems[activeCategory] ?? [];
 
   return (
     <div className="h-screen flex flex-col bg-slate-50">
@@ -129,7 +150,7 @@ export default function Customer() {
 
       {/* Category tabs */}
       <nav className="bg-white border-b border-slate-200 flex shrink-0" aria-label="Menu categories">
-        {CATEGORIES.map((cat) => (
+        {categories.map((cat) => (
           <button
             key={cat}
             onClick={() => { setActiveCategory(cat); setShowCart(false); }}
@@ -172,8 +193,9 @@ export default function Customer() {
                         <p className="text-slate-800 font-medium">{item.name} ×{item.qty}</p>
                         <p className="text-slate-400 text-xs mt-0.5">
                           {[
-                            item.milkLevel !== "Regular" && `Milk: ${item.milkLevel}`,
+                            item.milkLevel !== "Whole Milk" && `Milk: ${item.milkLevel}`,
                             item.iceLevel  !== "Regular" && `Ice: ${item.iceLevel}`,
+                            item.toppings.length > 0 && item.toppings.map((t) => t.name).join(", "),
                           ].filter(Boolean).join(" · ")}
                         </p>
                       </div>
@@ -286,9 +308,9 @@ export default function Customer() {
             {/* Milk level — only for milk-based drinks */}
             {selectedItem.hasMilk && (
               <div className="mb-5">
-                <p className="text-sm font-semibold text-slate-700 mb-2">Milk Level</p>
-                <div className="grid grid-cols-4 gap-2">
-                  {MILK_LEVELS.map((level) => (
+                <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {MILK_TYPES.map((level) => (
                     <button
                       key={level}
                       onClick={() => setMilkLevel(level)}
@@ -304,6 +326,29 @@ export default function Customer() {
                 </div>
               </div>
             )}
+
+            {/* Toppings */}
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
+              <div className="grid grid-cols-2 gap-2">
+                {TOPPINGS.map((topping) => (
+                  <button
+                    key={topping.id}
+                    onClick={() => toggleTopping(topping.id)}
+                    className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${selectedToppings.includes(topping.id)
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-blue-300"
+                      }`}
+                  >
+                    {topping.name}
+                    {topping.allergens.length > 0 && (
+                      <span className="ml-1">{topping.allergens.map((a) => ALLERGEN_ICONS[a]).join("")}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Actions */}
             <div className="flex gap-3 mt-2">
