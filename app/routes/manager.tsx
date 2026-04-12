@@ -8,12 +8,14 @@ export function meta({}: Route.MetaArgs) {
 }
 
 interface InventoryItem {
-  id:         string;
-  name:       string;
-  category:   string;
-  price:      number;
-  onMenu:     boolean;
-  isSeasonal: boolean;
+  id:          string;
+  name:        string;
+  category:    string;
+  price:       number;
+  onMenu:      boolean;
+  isSeasonal:  boolean;
+  quantity:    number;
+  minQuantity: number;
 }
 
 interface Employee {
@@ -26,7 +28,8 @@ export async function loader() {
   const [itemsResult, employeesResult] = await Promise.all([
     pool.query(
       `SELECT item_id::text AS id, name, category, price::float AS price,
-              is_active AS "onMenu", COALESCE(is_seasonal, false) AS "isSeasonal"
+              is_active AS "onMenu", COALESCE(is_seasonal, false) AS "isSeasonal",
+              COALESCE(quantity, 0) AS quantity, COALESCE(min_quantity, 0) AS "minQuantity"
        FROM "Item" ORDER BY category, name`
     ),
     pool.query(
@@ -51,28 +54,52 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "add") {
-    const name       = formData.get("name") as string;
-    const category   = formData.get("category") as string;
-    const price      = Number(formData.get("price"));
-    const isSeasonal = formData.get("isSeasonal") === "true";
+    const name        = formData.get("name") as string;
+    const category    = formData.get("category") as string;
+    const price       = Number(formData.get("price"));
+    const isSeasonal  = formData.get("isSeasonal") === "true";
+    const quantity    = Number(formData.get("quantity") ?? 0);
+    const minQuantity = Number(formData.get("minQuantity") ?? 0);
     await pool.query(
-      `INSERT INTO "Item" (item_id, name, category, price, is_active, milk, ice, sugar, toppings, is_seasonal)
-       VALUES (gen_random_uuid(), $1, $2, $3, true, '', 0, 0.0, '{}', $4)`,
-      [name, category, price, isSeasonal]
+      `INSERT INTO "Item" (item_id, name, category, price, is_active, milk, ice, sugar, toppings, is_seasonal, quantity, min_quantity)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, '', 0, 0.0, '{}', $5, $6, $7)`,
+      [name, category, price, quantity >= minQuantity, isSeasonal, quantity, minQuantity]
     );
     return { ok: true };
   }
 
   if (intent === "edit") {
-    const id         = formData.get("id") as string;
-    const name       = formData.get("name") as string;
-    const category   = formData.get("category") as string;
-    const price      = Number(formData.get("price"));
-    const isSeasonal = formData.get("isSeasonal") === "true";
+    const id          = formData.get("id") as string;
+    const name        = formData.get("name") as string;
+    const category    = formData.get("category") as string;
+    const price       = Number(formData.get("price"));
+    const isSeasonal  = formData.get("isSeasonal") === "true";
+    const quantity    = Number(formData.get("quantity") ?? 0);
+    const minQuantity = Number(formData.get("minQuantity") ?? 0);
+    // Auto-remove from menu when stock drops below minimum
     await pool.query(
-      `UPDATE "Item" SET name = $1, category = $2, price = $3, is_seasonal = $4
-       WHERE item_id = $5::uuid`,
-      [name, category, price, isSeasonal, id]
+      `UPDATE "Item"
+       SET name = $1, category = $2, price = $3, is_seasonal = $4,
+           quantity = $5, min_quantity = $6,
+           is_active = CASE WHEN $5::int < $6::int THEN false ELSE is_active END
+       WHERE item_id = $7::uuid`,
+      [name, category, price, isSeasonal, quantity, minQuantity, id]
+    );
+    return { ok: true };
+  }
+
+  if (intent === "toggle-menu") {
+    const id = formData.get("id") as string;
+    // Allow enabling only when quantity >= min_quantity
+    await pool.query(
+      `UPDATE "Item"
+       SET is_active = CASE
+         WHEN is_active = true THEN false
+         WHEN quantity >= min_quantity THEN true
+         ELSE false
+       END
+       WHERE item_id = $1::uuid`,
+      [id]
     );
     return { ok: true };
   }
@@ -111,7 +138,7 @@ export default function Manager() {
   const [selected, setSelected]       = useState<string | null>(null);
   const [showAdd, setShowAdd]         = useState(false);
   const [editItem, setEditItem]       = useState<InventoryItem | null>(null);
-  const [addForm, setAddForm]         = useState({ name: "", category: "", price: "", isSeasonal: false });
+  const [addForm, setAddForm]         = useState({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
   const [editSeasonal, setEditSeasonal] = useState(false);
 
   // Close modals and clear selection after successful mutation
@@ -120,7 +147,7 @@ export default function Manager() {
       setShowAdd(false);
       setEditItem(null);
       setSelected(null);
-      setAddForm({ name: "", category: "", price: "", isSeasonal: false });
+      setAddForm({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -190,6 +217,8 @@ export default function Manager() {
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Category</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Price</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Qty</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Min Qty</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Seasonal</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
                     </tr>
@@ -208,21 +237,44 @@ export default function Manager() {
                         <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
                         <td className="px-4 py-3 text-slate-600">{item.category}</td>
                         <td className="px-4 py-3 text-slate-800">${Number(item.price).toFixed(2)}</td>
+                        <td className={`px-4 py-3 font-medium ${item.quantity < item.minQuantity ? "text-red-600" : "text-slate-800"}`}>
+                          {item.quantity}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{item.minQuantity}</td>
                         <td className="px-4 py-3 text-slate-600">{item.isSeasonal ? "Yes" : "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.onMenu ? "Yes" : "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${item.onMenu ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                            {item.onMenu ? "On" : "Off"}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={openEdit}
                   disabled={!selected}
                   className="px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Edit selected
+                </button>
+                <button
+                  onClick={() => {
+                    if (!selected) return;
+                    fetcher.submit({ intent: "toggle-menu", id: selected }, { method: "post" });
+                  }}
+                  disabled={!selected || busy}
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {(() => {
+                    const item = inventory.find((i) => i.id === selected);
+                    if (!item) return "Toggle menu";
+                    if (!item.onMenu && item.quantity < item.minQuantity) return "Toggle menu (low stock)";
+                    return item.onMenu ? "Remove from menu" : "Add to menu";
+                  })()}
                 </button>
                 <button
                   onClick={handleDelete}
@@ -320,6 +372,17 @@ export default function Manager() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Price ($)</label>
                 <input name="price" type="number" step="0.01" min="0" value={addForm.price} onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} required className={inputCls} placeholder="0.00" />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Current Qty</label>
+                  <input name="quantity" type="number" min="0" value={addForm.quantity} onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} required className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Min Qty</label>
+                  <input name="minQuantity" type="number" min="0" value={addForm.minQuantity} onChange={(e) => setAddForm({ ...addForm, minQuantity: e.target.value })} required className={inputCls} />
+                  <p className="text-xs text-slate-400 mt-1">Item auto-removed from menu when qty falls below this</p>
+                </div>
+              </div>
               <SeasonalToggle value={addForm.isSeasonal} onChange={(v) => setAddForm({ ...addForm, isSeasonal: v })} />
               <div className="flex gap-3 mt-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2.5 border border-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 focus:outline-none transition-colors">
@@ -360,6 +423,17 @@ export default function Manager() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Price ($)</label>
                 <input name="price" type="number" step="0.01" min="0" defaultValue={editItem.price} required className={inputCls} />
                 <p className="text-xs text-slate-400 mt-1">Price changes only apply to new orders</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Current Qty</label>
+                  <input name="quantity" type="number" min="0" defaultValue={editItem.quantity} required className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Min Qty</label>
+                  <input name="minQuantity" type="number" min="0" defaultValue={editItem.minQuantity} required className={inputCls} />
+                  <p className="text-xs text-slate-400 mt-1">Auto-removed from menu if qty &lt; min</p>
+                </div>
               </div>
               <SeasonalToggle value={editSeasonal} onChange={setEditSeasonal} />
               <div className="flex gap-3 mt-2">

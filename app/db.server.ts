@@ -15,4 +15,12 @@ pool.query(`
   ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS is_seasonal boolean NOT NULL DEFAULT false
 `).catch(console.error);
 
+pool.query(`
+  ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS quantity int NOT NULL DEFAULT 0
+`).catch(console.error);
+
+pool.query(`
+  ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS min_quantity int NOT NULL DEFAULT 0
+`).catch(console.error);
+
 export default pool;
