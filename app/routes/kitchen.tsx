@@ -44,8 +44,8 @@ function OrderCard({ order }: { order: KitchenOrder }) {
   const completing = fetcher.state !== "idle";
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col min-h-48">
-      <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 rounded-t-lg flex items-center justify-between">
+    <div className="section-card flex flex-col min-h-48">
+      <div className="px-4 py-3 bg-slate-100/80 border-b border-slate-200 rounded-t-[0.875rem] flex items-center justify-between">
         <span className="text-sm font-bold text-slate-800">
           Order #{order.id.slice(-6).toUpperCase()}
         </span>
@@ -65,7 +65,7 @@ function OrderCard({ order }: { order: KitchenOrder }) {
           <button
             type="submit"
             disabled={completing}
-            className="w-full py-2 bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
           >
             {completing ? "Completing…" : "Mark Complete"}
           </button>
@@ -84,24 +84,33 @@ export default function Kitchen() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
-      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <button
-          onClick={() => navigate("/portal")}
-          className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
-        >
-          Boba House
-        </button>
-        <span className="text-slate-300 text-sm font-medium">Kitchen Display</span>
+    <div className="h-screen flex flex-col app-shell">
+      <header className="app-header px-6 py-4 shrink-0">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <button
+              onClick={() => navigate("/portal")}
+              className="brand-link hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
+            >
+              Boba House
+            </button>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Kitchen Display</span>
+        </div>
       </header>
 
-      <div className="flex-1 p-5 overflow-y-auto">
+      <div className="flex-1 page-section w-full px-4 py-5 overflow-y-auto">
+        <div className="mb-4">
+          <h2 className="section-title">Active Queue</h2>
+          <p className="section-description">Track pending orders and mark them complete when fulfilled.</p>
+        </div>
         {orders.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="section-card flex items-center justify-center h-[70vh]">
             <p className="text-slate-400 text-lg font-medium">No pending orders</p>
           </div>
         ) : (
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-5 gap-4 pb-4">
             {orders.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}
@@ -109,8 +118,8 @@ export default function Kitchen() {
         )}
       </div>
 
-      <footer className="bg-slate-700 px-6 py-1.5 shrink-0">
-        <p className="text-slate-300 text-xs">
+      <footer className="soft-footer px-6 py-1.5 shrink-0">
+        <p className="text-xs">
           {orders.length} order{orders.length !== 1 ? "s" : ""} pending
         </p>
       </footer>

@@ -6,35 +6,45 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const PORTAL_LINKS = [
-  { label: "Manager",    path: "/login?redirect=/manager" },
-  { label: "Cashier",    path: "/login?redirect=/cashier" },
-  { label: "Customer",   path: "/customer" },
-  { label: "Menu Board", path: "/menu-board" },
-  { label: "Kitchen",    path: "/login?redirect=/kitchen" },
+  { label: "Manager", path: "/login?redirect=/manager", description: "Inventory, staffing, and reporting controls" },
+  { label: "Cashier", path: "/login?redirect=/cashier", description: "Fast checkout and order capture" },
+  { label: "Customer", path: "/customer", description: "Self-service ordering experience" },
+  { label: "Menu Board", path: "/menu-board", description: "Live menu display for storefront screens" },
+  { label: "Kitchen", path: "/login?redirect=/kitchen", description: "Order queue and preparation workflow" },
 ];
 
 export default function Portal() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="app-shell">
       {/* Header */}
-      <header className="bg-slate-800 px-6 py-4">
-        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+      <header className="app-header px-6 py-4">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <h1 className="brand-link">Boba House</h1>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Control Center</span>
+        </div>
       </header>
 
       {/* Card */}
-      <div className="flex-1 flex items-center justify-center px-4">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-10 w-full max-w-sm">
-          <h2 className="text-2xl font-bold text-slate-900 mb-8">Portal</h2>
-          <div className="flex flex-col gap-3">
-            {PORTAL_LINKS.map(({ label, path }) => (
+      <div className="flex-1 px-4 py-8">
+        <div className="page-section">
+          <div className="mb-6">
+            <h2 className="section-title">Portal</h2>
+            <p className="section-description">Choose a workspace to manage daily operations.</p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {PORTAL_LINKS.map(({ label, path, description }) => (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className="bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white font-semibold rounded-lg py-3 transition-colors"
+                className="section-card p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               >
-                {label}
+                <p className="text-base font-semibold text-slate-900">{label}</p>
+                <p className="text-sm text-slate-500 mt-1">{description}</p>
               </button>
             ))}
           </div>

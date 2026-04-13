@@ -15,14 +15,21 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-800 px-6 py-4">
-        <h1 className="text-white text-xl font-bold tracking-wide">Boba House</h1>
+    <div className="app-shell">
+      <header className="app-header px-6 py-4">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <h1 className="brand-link">Boba House</h1>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Secure Access</span>
+        </div>
       </header>
 
-      <div className="flex-1 flex items-center justify-center px-4">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-10 w-full max-w-sm">
-          <h2 className="text-2xl font-bold text-slate-900 mb-8">Sign In</h2>
+      <div className="flex-1 flex items-center justify-center px-4 py-8">
+        <div className="surface-card p-10 w-full max-w-md">
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Sign In</h2>
+          <p className="text-sm text-slate-500 mb-8">Access your workspace securely.</p>
           <form onSubmit={handleLogin} className="flex flex-col gap-5">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="username" className="text-sm font-medium text-slate-700">
@@ -33,7 +40,7 @@ export default function Login() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="border border-slate-300 rounded-lg px-4 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
+                className="field-input placeholder-slate-400"
                 placeholder="Enter username"
               />
             </div>
@@ -46,13 +53,13 @@ export default function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="border border-slate-300 rounded-lg px-4 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
+                className="field-input placeholder-slate-400"
                 placeholder="Enter password"
               />
             </div>
             <button
               type="submit"
-              className="mt-2 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white font-semibold rounded-lg py-2 transition-colors"
+              className="primary-btn mt-2 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 py-2.5"
             >
               Login
             </button>

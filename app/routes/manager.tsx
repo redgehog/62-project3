@@ -196,7 +196,7 @@ export async function action({ request }: Route.ActionArgs) {
 
 const TABS = ["Inventory", "Menu", "Employees", "Reports"] as const;
 
-const inputCls = "border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 w-full focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600";
+const inputCls = "field-input text-sm";
 
 function SeasonalToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -266,29 +266,34 @@ export default function Manager() {
   const busy = fetcher.state !== "idle";
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex flex-col app-shell">
       {/* Header */}
-      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <button
-          onClick={() => navigate("/portal")}
-          className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
-        >
-          Boba House
-        </button>
-        <span className="text-slate-300 text-sm font-medium">Manager</span>
+      <header className="app-header px-6 py-4 shrink-0">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <button
+              onClick={() => navigate("/portal")}
+              className="brand-link hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
+            >
+              Boba House
+            </button>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Manager Console</span>
+        </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden page-section w-full px-4 py-5 gap-4">
         {/* Sidebar */}
-        <nav className="w-44 bg-white border-r border-slate-200 p-4 flex flex-col gap-1 shrink-0" aria-label="Manager sections">
+        <nav className="w-48 bg-white/85 backdrop-blur border-r border-slate-200 p-4 flex flex-col gap-1 shrink-0" aria-label="Manager sections">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2 px-2">Sections</p>
           {TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               aria-pressed={activeTab === tab}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                ${activeTab === tab ? "bg-blue-600 text-white" : "text-slate-700 hover:bg-slate-100"}`}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500
+                ${activeTab === tab ? "bg-indigo-600 text-white shadow-sm" : "text-slate-700 hover:bg-slate-100"}`}
             >
               {tab}
             </button>
@@ -296,7 +301,7 @@ export default function Manager() {
         </nav>
 
         {/* Main content */}
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 section-card p-6 overflow-y-auto">
 
           {activeTab === "Inventory" && (
             <section aria-label="Inventory management">
@@ -304,13 +309,13 @@ export default function Manager() {
                 <h2 className="text-lg font-bold text-slate-900">Inventory</h2>
                 <button
                   onClick={() => setShowAdd(true)}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  className="primary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
                 >
                   + Add Item
                 </button>
               </div>
 
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+              <div className="section-card overflow-hidden mb-4">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
@@ -367,7 +372,7 @@ export default function Manager() {
                 <button
                   onClick={openEdit}
                   disabled={!selected}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Edit selected
                 </button>
@@ -377,7 +382,7 @@ export default function Manager() {
                     fetcher.submit({ intent: "toggle-menu", id: selected }, { method: "post" });
                   }}
                   disabled={!selected || busy}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {(() => {
                     const item = inventory.find((i) => i.id === selected);
@@ -389,7 +394,7 @@ export default function Manager() {
                 <button
                   onClick={handleDelete}
                   disabled={!selected || busy}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium border border-red-300 bg-white text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="danger-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {busy ? "Deleting…" : "Delete selected"}
                 </button>
@@ -413,7 +418,7 @@ export default function Manager() {
                       onClick={() => setMenuFilter(key)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                         menuFilter === key
-                          ? "bg-blue-600 border-blue-600 text-white"
+                          ? "bg-indigo-600 border-indigo-600 text-white"
                           : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
                       }`}
                     >
@@ -424,17 +429,17 @@ export default function Manager() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+                <div className="section-card px-4 py-3">
                   <p className="text-xs text-slate-500">On menu</p>
                   <p className="text-lg font-bold text-green-700">{inventory.filter((i) => i.onMenu).length}</p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+                <div className="section-card px-4 py-3">
                   <p className="text-xs text-slate-500">Off menu</p>
                   <p className="text-lg font-bold text-slate-700">{inventory.filter((i) => !i.onMenu).length}</p>
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="section-card overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
@@ -485,7 +490,7 @@ export default function Manager() {
           {activeTab === "Employees" && (
             <section aria-label="Employee list">
               <h2 className="text-lg font-bold text-slate-900 mb-4">Employees</h2>
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="section-card overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
@@ -512,7 +517,7 @@ export default function Manager() {
               <div className="grid grid-cols-2 gap-6">
 
                 {/* X Report */}
-                <div className="bg-white rounded-lg border border-slate-200 p-5 flex flex-col gap-3">
+                <div className="section-card p-5 flex flex-col gap-3">
                   <div>
                     <h3 className="text-sm font-bold text-slate-800">X Report</h3>
                     <p className="text-xs text-slate-500 mt-0.5">Hourly sales totals for today. Non-destructive — safe to run any time.</p>
@@ -520,7 +525,7 @@ export default function Manager() {
                   <button
                     onClick={() => fetcher.submit({ intent: "x-report" }, { method: "post" })}
                     disabled={busy}
-                    className="self-start px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="primary-btn self-start px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {busy ? "Generating…" : "Generate X Report"}
                   </button>
@@ -532,7 +537,7 @@ export default function Manager() {
                 </div>
 
                 {/* Z Report */}
-                <div className="bg-white rounded-lg border border-slate-200 p-5 flex flex-col gap-3">
+                <div className="section-card p-5 flex flex-col gap-3">
                   <div>
                     <h3 className="text-sm font-bold text-slate-800">Z Report</h3>
                     <p className="text-xs text-slate-500 mt-0.5">End-of-day close-out. Saves the report and resets today's X-report counters. Run once per day at close.</p>
@@ -541,7 +546,7 @@ export default function Manager() {
                     <button
                       onClick={() => fetcher.submit({ intent: "z-report-view" }, { method: "post" })}
                       disabled={busy}
-                      className="px-4 py-1.5 bg-white border border-slate-300 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="secondary-btn px-4 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       View today's Z Report
                     </button>
@@ -571,7 +576,7 @@ export default function Manager() {
       </div>
 
       {/* Status bar */}
-      <footer style={{ padding: "6px 20px", borderTop: "1px solid #ccc", fontSize: "12px", color: "#777" }}>
+      <footer className="soft-footer px-5 py-1.5 text-xs">
         Manager — menu, inventory, employees, reports
       </footer>
 
@@ -583,7 +588,7 @@ export default function Manager() {
           aria-modal="true"
           onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
         >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="surface-card w-full max-w-md p-6">
             <h2 className="text-xl font-bold text-slate-900 mb-5">Add Item</h2>
             <fetcher.Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="add" />
@@ -613,10 +618,10 @@ export default function Manager() {
               </div>
               <SeasonalToggle value={addForm.isSeasonal} onChange={(v) => setAddForm({ ...addForm, isSeasonal: v })} />
               <div className="flex gap-3 mt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2.5 border border-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 focus:outline-none transition-colors">
+                <button type="button" onClick={() => setShowAdd(false)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
                   Cancel
                 </button>
-                <button type="submit" disabled={busy} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Adding…" : "Add Item"}
                 </button>
               </div>
@@ -633,7 +638,7 @@ export default function Manager() {
           aria-modal="true"
           onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
         >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="surface-card w-full max-w-md p-6">
             <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Item</h2>
             <fetcher.Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="edit" />
@@ -665,10 +670,10 @@ export default function Manager() {
               </div>
               <SeasonalToggle value={editSeasonal} onChange={setEditSeasonal} />
               <div className="flex gap-3 mt-2">
-                <button type="button" onClick={() => setEditItem(null)} className="flex-1 py-2.5 border border-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 focus:outline-none transition-colors">
+                <button type="button" onClick={() => setEditItem(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
                   Cancel
                 </button>
-                <button type="submit" disabled={busy} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Saving…" : "Save Changes"}
                 </button>
               </div>
