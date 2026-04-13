@@ -219,20 +219,25 @@ export default function Customer() {
   const items      = menuItems[activeCategory] ?? [];
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex flex-col app-shell">
       {/* Header */}
-      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <button
-          onClick={() => navigate("/portal")}
-          className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
-        >
-          Boba House
-        </button>
-        <span className="text-slate-300 text-sm font-medium">Self-Order Kiosk</span>
+      <header className="app-header px-6 py-4 shrink-0">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <button
+              onClick={() => navigate("/portal")}
+              className="brand-link hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
+            >
+              Boba House
+            </button>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Customer Kiosk</span>
+        </div>
       </header>
 
       {/* Category tabs */}
-      <nav className="bg-white border-b border-slate-200 flex shrink-0" aria-label="Menu categories">
+      <nav className="bg-white/80 backdrop-blur border-b border-slate-200 flex shrink-0" aria-label="Menu categories">
         {categories.map((cat) => (
           <button
             key={cat}
@@ -240,8 +245,8 @@ export default function Customer() {
             aria-pressed={activeCategory === cat && !showCart}
             className={`flex-1 py-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
               ${activeCategory === cat && !showCart
-                ? "border-blue-600 text-blue-700 bg-blue-50"
-                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                ? "border-indigo-500 text-indigo-700 bg-indigo-50"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
           >
             {cat}
@@ -252,8 +257,8 @@ export default function Customer() {
           aria-pressed={showCart}
           className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
             ${showCart
-              ? "border-blue-600 text-blue-700 bg-blue-50"
-              : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+              ? "border-indigo-500 text-indigo-700 bg-indigo-50"
+              : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
             }`}
         >
           Cart ({totalItems})
@@ -261,15 +266,15 @@ export default function Customer() {
       </nav>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto page-section w-full px-4 py-5">
         {showCart ? (
-          <div className="max-w-lg mx-auto">
+          <div className="max-w-xl mx-auto section-card p-5">
             <h2 className="text-lg font-bold text-slate-900 mb-4">Your Cart</h2>
             {cart.length === 0 ? (
               <p className="text-slate-500 text-sm">No items in cart.</p>
             ) : (
               <>
-                <div className="bg-white rounded-lg border border-slate-200 divide-y divide-slate-100">
+                <div className="section-card divide-y divide-slate-100">
                   {cart.map((item) => (
                     <div key={item.cartKey} className="flex items-center justify-between px-4 py-3 text-sm">
                       <div>
@@ -304,7 +309,7 @@ export default function Customer() {
                     { method: "post" }
                   )}
                   disabled={fetcher.state !== "idle"}
-                  className="mt-4 w-full py-3 bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 text-white font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  className="primary-btn mt-4 w-full py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {fetcher.state !== "idle" ? "Placing order…" : "Place Order"}
                 </button>
@@ -317,12 +322,17 @@ export default function Customer() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-3">
+          <div>
+            <div className="mb-4">
+              <h2 className="section-title">Menu</h2>
+              <p className="section-description">Tap an item to customize and add it to your cart.</p>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
             {items.map((item) => (
               <button
                 key={item.id}
                 onClick={() => openItem(item)}
-                className="bg-white border border-slate-200 rounded-lg p-5 text-left hover:bg-blue-50 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors"
+                className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               >
                 <p className="text-sm font-semibold text-slate-900">{item.name}</p>
                 <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
@@ -333,13 +343,14 @@ export default function Customer() {
                 )}
               </button>
             ))}
+            </div>
           </div>
         )}
       </div>
 
       {/* Status bar */}
-      <footer className="bg-slate-700 px-6 py-1.5 shrink-0">
-        <p className="text-slate-300 text-xs">Customer kiosk — tap an item to customize and add to your order</p>
+      <footer className="soft-footer px-6 py-1.5 shrink-0">
+        <p className="text-xs">Customer kiosk — tap an item to customize and add to your order</p>
       </footer>
 
       {/* Customization popup */}
@@ -351,7 +362,7 @@ export default function Customer() {
           aria-label={`Customize ${selectedItem.name}`}
           onClick={(e) => { if (e.target === e.currentTarget) closePopup(); }}
         >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="surface-card w-full max-w-md p-6">
 
             {/* Item header */}
             <div className="flex items-start justify-between mb-5">
@@ -387,8 +398,8 @@ export default function Customer() {
                     onClick={() => setIceLevel(level)}
                     className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                       ${iceLevel === level
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-blue-300"
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                       }`}
                   >
                     {level}
@@ -408,8 +419,8 @@ export default function Customer() {
                       onClick={() => setMilkLevel(level)}
                       className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${milkLevel === level
-                          ? "bg-blue-600 border-blue-600 text-white"
-                          : "bg-white border-slate-200 text-slate-700 hover:border-blue-300"
+                          ? "bg-indigo-600 border-indigo-600 text-white"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                         }`}
                     >
                       {level}
@@ -429,8 +440,8 @@ export default function Customer() {
                     onClick={() => toggleTopping(topping.id)}
                     className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                       ${selectedToppings.includes(topping.id)
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-blue-300"
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                       }`}
                   >
                     {topping.name}
@@ -446,13 +457,13 @@ export default function Customer() {
             <div className="flex gap-3 mt-2">
               <button
                 onClick={closePopup}
-                className="flex-1 py-3 border border-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
+                className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAddToCart}
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors"
+                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors"
               >
                 Add to Cart
               </button>

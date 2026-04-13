@@ -145,15 +145,20 @@ export default function Cashier() {
   const items = byCategory[activeCategory] ?? [];
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex flex-col app-shell">
       {/* Header */}
-      <header className="bg-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
-        <button onClick={() => navigate("/portal")} className="text-white text-xl font-bold tracking-wide hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
-        <span className="text-slate-300 text-sm font-medium">Cashier</span>
+      <header className="app-header px-6 py-4 shrink-0">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <button onClick={() => navigate("/portal")} className="brand-link hover:text-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
+            <p className="topbar-tagline">Shop Operations Suite</p>
+          </div>
+          <span className="topbar-chip">Cashier Workspace</span>
+        </div>
       </header>
 
       {/* Category tabs */}
-      <nav className="bg-white border-b border-slate-200 flex shrink-0 overflow-x-auto" aria-label="Menu categories">
+      <nav className="bg-white/80 backdrop-blur border-b border-slate-200 flex shrink-0 overflow-x-auto" aria-label="Menu categories">
         {categories.map((cat) => (
           <button
             key={cat}
@@ -161,8 +166,8 @@ export default function Cashier() {
             aria-pressed={activeCategory === cat}
             className={`flex-1 min-w-max py-3 px-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
               ${activeCategory === cat
-                ? "border-blue-600 text-blue-700 bg-blue-50"
-                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                ? "border-indigo-500 text-indigo-700 bg-indigo-50"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
           >
             {cat === "Seasonal" ? "🍂 Seasonal" : cat}
@@ -171,15 +176,19 @@ export default function Cashier() {
       </nav>
 
       {/* Body */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 page-section w-full flex overflow-hidden px-4 py-5 gap-4">
         {/* Menu grid */}
-        <div className="flex-1 p-5 overflow-y-auto">
+        <div className="flex-1 section-card p-5 overflow-y-auto">
+          <div className="mb-4">
+            <h2 className="section-title">Menu</h2>
+            <p className="section-description">Select items to build the current order.</p>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             {items.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addItem(item)}
-                className="bg-white border border-slate-200 rounded-lg p-5 text-left hover:bg-blue-50 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors"
+                className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               >
                 <p className="text-sm font-semibold text-slate-900">{item.name}</p>
                 <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
@@ -189,7 +198,7 @@ export default function Cashier() {
         </div>
 
         {/* Order summary */}
-        <aside className="w-64 border-l border-slate-200 bg-white flex flex-col shrink-0">
+        <aside className="w-72 section-card bg-white/90 backdrop-blur flex flex-col shrink-0">
           <div className="px-4 py-3 border-b border-slate-200">
             <h2 className="text-sm font-semibold text-slate-700">Order Summary</h2>
           </div>
@@ -229,7 +238,7 @@ export default function Cashier() {
             <button
               onClick={handleSubmit}
               disabled={orderItems.length === 0 || submitting}
-              className="w-full mt-2 py-2.5 rounded-lg font-semibold text-white transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700"
+              className="primary-btn w-full mt-2 py-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {submitting ? "Submitting…" : "Submit Order"}
             </button>
@@ -243,8 +252,8 @@ export default function Cashier() {
       </div>
 
       {/* Status bar */}
-      <footer className="bg-slate-700 px-6 py-1.5">
-        <p className="text-slate-300 text-xs">Cashier — click items to add to order</p>
+      <footer className="soft-footer px-6 py-1.5">
+        <p className="text-xs">Cashier — click items to add to order</p>
       </footer>
     </div>
   );
