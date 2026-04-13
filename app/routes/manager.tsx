@@ -229,6 +229,7 @@ export default function Manager() {
   const [editSeasonal, setEditSeasonal] = useState(false);
   const [xReport, setXReport]           = useState<string | null>(null);
   const [zReport, setZReport]           = useState<string | null>(null);
+  const [menuFilter, setMenuFilter]     = useState<"all" | "on" | "off">("all");
 
   // Close modals after add/edit; update report text when returned
   useEffect(() => {
@@ -394,7 +395,41 @@ export default function Manager() {
 
           {activeTab === "Menu" && (
             <section aria-label="Menu items">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Menu</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-900">Menu</h2>
+                <div className="flex gap-2">
+                  {([
+                    ["all", "All"],
+                    ["on", "On Menu"],
+                    ["off", "Off Menu"],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setMenuFilter(key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        menuFilter === key
+                          ? "bg-blue-600 border-blue-600 text-white"
+                          : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+                  <p className="text-xs text-slate-500">On menu</p>
+                  <p className="text-lg font-bold text-green-700">{inventory.filter((i) => i.onMenu).length}</p>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 px-4 py-3">
+                  <p className="text-xs text-slate-500">Off menu</p>
+                  <p className="text-lg font-bold text-slate-700">{inventory.filter((i) => !i.onMenu).length}</p>
+                </div>
+              </div>
+
               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
@@ -403,20 +438,43 @@ export default function Manager() {
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Category</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Price</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Seasonal</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {inventory.filter((i) => i.onMenu).map((item) => (
+                    {inventory
+                      .filter((item) => {
+                        if (menuFilter === "on") return item.onMenu;
+                        if (menuFilter === "off") return !item.onMenu;
+                        return true;
+                      })
+                      .map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
                         <td className="px-4 py-3 text-slate-600">{item.category}</td>
                         <td className="px-4 py-3 text-slate-800">${Number(item.price).toFixed(2)}</td>
                         <td className="px-4 py-3 text-slate-600">{item.isSeasonal ? "🍂 Yes" : "—"}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => fetcher.submit({ intent: "toggle-menu", id: item.id }, { method: "post" })}
+                            disabled={busy}
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              item.onMenu ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            }`}
+                            title={!item.onMenu && item.quantity < item.minQuantity ? "Cannot enable while stock is below minimum" : "Toggle menu visibility"}
+                          >
+                            {item.onMenu ? "On" : "Off"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="text-xs text-slate-500 mt-3">
+                Menu tab is for publish/unpublish control only. Use Inventory tab for stock management and item edits.
+              </p>
             </section>
           )}
 
