@@ -221,6 +221,10 @@ export default function Manager() {
   const navigate  = useNavigate();
   const fetcher   = useFetcher<typeof action>();
 
+  useEffect(() => {
+    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/manager");
+  }, []);
+
   const [activeTab, setActiveTab]     = useState("Inventory");
   const [selected, setSelected]       = useState<string | null>(null);
   const [showAdd, setShowAdd]         = useState(false);

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/kitchen";
 import pool from "../db.server";
@@ -77,6 +78,10 @@ function OrderCard({ order }: { order: KitchenOrder }) {
 export default function Kitchen() {
   const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/kitchen");
+  }, []);
 
   return (
     <div className="h-screen flex flex-col bg-slate-50">
