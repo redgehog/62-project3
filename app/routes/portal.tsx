@@ -6,11 +6,11 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const PORTAL_LINKS = [
-  { label: "Manager",    path: "/manager" },
-  { label: "Cashier",    path: "/cashier" },
+  { label: "Manager",    path: "/login?redirect=/manager" },
+  { label: "Cashier",    path: "/login?redirect=/cashier" },
   { label: "Customer",   path: "/customer" },
   { label: "Menu Board", path: "/menu-board" },
-  { label: "Kitchen",    path: "/kitchen" },
+  { label: "Kitchen",    path: "/login?redirect=/kitchen" },
 ];
 
 export default function Portal() {

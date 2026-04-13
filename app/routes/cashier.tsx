@@ -105,6 +105,10 @@ export default function Cashier() {
   const navigate = useNavigate();
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");
+  }, []);
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
