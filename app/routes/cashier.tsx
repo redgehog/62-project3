@@ -72,13 +72,6 @@ export async function action({ request }: Route.ActionArgs) {
        VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
       [orderId, item.id, item.qty, item.price.toFixed(2)]
     );
-    await pool.query(
-      `UPDATE "Item"
-       SET quantity  = GREATEST(quantity - $1, 0),
-           is_active = CASE WHEN (quantity - $1) < min_quantity THEN false ELSE is_active END
-       WHERE item_id = $2::uuid`,
-      [item.qty, item.id]
-    );
   }
 
   const taxAmount = (totalPrice - subtotal).toFixed(2);
