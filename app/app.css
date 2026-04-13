@@ -88,13 +88,13 @@ body {
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid #dbe3ef;
   box-shadow: 0 18px 45px -28px rgba(15, 23, 42, 0.45);
-  border-radius: 1rem;
+  border-radius: 0.75rem;
 }
 
 .section-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 0.875rem;
+  border-radius: 0.625rem;
   box-shadow: 0 12px 32px -24px rgba(15, 23, 42, 0.35);
 }
 
@@ -112,7 +112,7 @@ body {
 .primary-btn {
   background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
   color: #ffffff;
-  border-radius: 0.75rem;
+  border-radius: 0.55rem;
   font-weight: 600;
   transition: all 0.2s ease;
 }
@@ -125,7 +125,7 @@ body {
   background: #ffffff;
   color: #334155;
   border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
+  border-radius: 0.55rem;
   font-weight: 600;
   transition: all 0.2s ease;
 }
@@ -138,7 +138,7 @@ body {
   background: #ffffff;
   color: #b91c1c;
   border: 1px solid #fecaca;
-  border-radius: 0.75rem;
+  border-radius: 0.55rem;
   font-weight: 600;
   transition: all 0.2s ease;
 }
@@ -152,7 +152,7 @@ body {
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #0f172a;
-  border-radius: 0.75rem;
+  border-radius: 0.55rem;
   padding: 0.6rem 0.85rem;
 }
 
@@ -166,4 +166,17 @@ body {
   border-top: 1px solid #d7deea;
   background: #f8fafc;
   color: #64748b;
+}
+
+/* Slightly reduce default Tailwind radius utilities app-wide */
+.rounded-lg {
+  border-radius: 0.55rem;
+}
+
+.rounded-xl {
+  border-radius: 0.7rem;
+}
+
+.rounded-2xl {
+  border-radius: 0.85rem;
 }

@@ -236,40 +236,22 @@ export default function Customer() {
         </div>
       </header>
 
-      {/* Category tabs */}
-      <nav className="bg-white/80 backdrop-blur border-b border-slate-200 flex shrink-0" aria-label="Menu categories">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => { setActiveCategory(cat); setShowCart(false); }}
-            aria-pressed={activeCategory === cat && !showCart}
-            className={`flex-1 py-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
-              ${activeCategory === cat && !showCart
-                ? "border-indigo-500 text-indigo-700 bg-indigo-50"
-                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              }`}
-          >
-            {cat}
-          </button>
-        ))}
-        <button
-          onClick={() => setShowCart(true)}
-          aria-pressed={showCart}
-          className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
-            ${showCart
-              ? "border-indigo-500 text-indigo-700 bg-indigo-50"
-              : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-            }`}
-        >
-          Cart ({totalItems})
-        </button>
-      </nav>
-
       {/* Content */}
       <div className="flex-1 overflow-y-auto page-section w-full px-4 py-5">
         {showCart ? (
-          <div className="max-w-xl mx-auto section-card p-5">
-            <h2 className="text-lg font-bold text-slate-900 mb-4">Your Cart</h2>
+          <div className="max-w-2xl mx-auto section-card p-6">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 className="section-title">Your Cart</h2>
+                <p className="section-description">Review selected items and place your order.</p>
+              </div>
+              <button
+                onClick={() => setShowCart(false)}
+                className="secondary-btn px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              >
+                Back to Menu
+              </button>
+            </div>
             {cart.length === 0 ? (
               <p className="text-slate-500 text-sm">No items in cart.</p>
             ) : (
@@ -322,28 +304,70 @@ export default function Customer() {
             )}
           </div>
         ) : (
-          <div>
-            <div className="mb-4">
-              <h2 className="section-title">Menu</h2>
-              <p className="section-description">Tap an item to customize and add it to your cart.</p>
-            </div>
-            <div className="grid grid-cols-4 gap-3">
-            {items.map((item) => (
+          <div className="section-card p-5">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="section-title">Menu</h2>
+                <p className="section-description">Choose a category, then tap an item to customize and add it to your cart.</p>
+              </div>
               <button
-                key={item.id}
-                onClick={() => openItem(item)}
-                className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                onClick={() => setShowCart(true)}
+                className="primary-btn px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 whitespace-nowrap"
               >
-                <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
-                {item.allergens.length > 0 && (
-                  <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
-                    {item.allergens.map((a) => ALLERGEN_ICONS[a]).join(" ")}
-                  </p>
-                )}
+                Cart ({totalItems})
               </button>
-            ))}
             </div>
+
+            <div className="mb-5">
+              <div
+                className="grid gap-2 w-full"
+                style={{ gridTemplateColumns: `repeat(${Math.max(categories.length, 1)}, minmax(0, 1fr))` }}
+              >
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      setActiveCategory(cat);
+                      setShowCart(false);
+                    }}
+                    aria-pressed={activeCategory === cat}
+                    className={`px-3 py-2.5 rounded-lg text-sm font-semibold text-center transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      activeCategory === cat
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-slate-900">{activeCategory}</h3>
+              <p className="section-description">Available items in this category.</p>
+            </div>
+
+            <div className="grid grid-cols-4 gap-3">
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => openItem(item)}
+                    className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                  >
+                    <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                    <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                    {item.allergens.length > 0 && (
+                      <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
+                        {item.allergens.map((a) => ALLERGEN_ICONS[a]).join(" ")}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {items.length === 0 && (
+              <p className="text-sm text-slate-500 py-8 text-center">No items available in this category right now.</p>
+            )}
           </div>
         )}
       </div>
