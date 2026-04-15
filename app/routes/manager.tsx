@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
+import { requireSignedIn } from "../clerk-auth.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager — Boba House" }];
@@ -24,7 +25,8 @@ interface Employee {
   start_date: string;
 }
 
-export async function loader() {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requireSignedIn({ request, context });
   const [itemsResult, employeesResult] = await Promise.all([
     pool.query(
       `SELECT item_id::text AS id, name, category, price::float AS price,
@@ -43,7 +45,8 @@ export async function loader() {
   };
 }
 
-export async function action({ request }: Route.ActionArgs) {
+export async function action({ request, context }: Route.ActionArgs) {
+  await requireSignedIn({ request, context });
   const formData = await request.formData();
   const intent   = formData.get("intent") as string;
 
@@ -247,10 +250,6 @@ export default function Manager() {
   const { inventory, employees } = useLoaderData<typeof loader>();
   const navigate  = useNavigate();
   const fetcher   = useFetcher<typeof action>();
-
-  useEffect(() => {
-    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/manager");
-  }, []);
 
   const [activeTab, setActiveTab]     = useState("Inventory");
   const [selected, setSelected]       = useState<string | null>(null);

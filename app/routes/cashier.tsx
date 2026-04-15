@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
-import { useLoaderData, useNavigate, useFetcher } from "react-router";
+import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
+import {
+  destroyCashierSession,
+  getCashierSession,
+  requireCashierAccess,
+} from "../cashier-access.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -23,7 +28,8 @@ const TOPPINGS: Topping[] = [
   { id: 17, name: "Pudding",      price: 0.75 },
 ];
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  await requireCashierAccess(request);
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price,
             COALESCE(is_seasonal, false) AS "isSeasonal", milk
@@ -57,14 +63,35 @@ export async function loader() {
 
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
+
+  if (intent === "logout") {
+    const session = await getCashierSession(request);
+    return redirect("/portal", {
+      headers: { "Set-Cookie": await destroyCashierSession(session) },
+    });
+  }
+
+  await requireCashierAccess(request);
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; price: number; qty: number;
   }>;
 
   if (!items.length) return { ok: false };
 
+  const session = await getCashierSession(request);
+  const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
+
   const [empRow, custRow] = await Promise.all([
-    pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
+    sessionEmployeeId
+      ? pool.query(
+          `SELECT employee_id
+           FROM "Employee"
+           WHERE employee_id = $1::uuid
+           LIMIT 1`,
+          [sessionEmployeeId]
+        )
+      : pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
     pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
   ]);
   const employeeId = empRow.rows[0]?.employee_id;
@@ -126,10 +153,6 @@ export default function Cashier() {
   const navigate = useNavigate();
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
-
-  useEffect(() => {
-    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");
-  }, []);
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
   const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
@@ -229,8 +252,21 @@ export default function Cashier() {
         {/* Menu grid */}
         <div className="flex-1 section-card p-5 overflow-y-auto">
           <div className="mb-4">
-            <h2 className="section-title">Menu</h2>
-            <p className="section-description">Select items to build the current order.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="section-title">Menu</h2>
+                <p className="section-description">Select items to build the current order.</p>
+              </div>
+              <Form method="post">
+                <input type="hidden" name="intent" value="logout" />
+                <button
+                  type="submit"
+                  className="secondary-btn px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  Cashier Logout
+                </button>
+              </Form>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {items.map((item) => (
