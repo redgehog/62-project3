@@ -270,7 +270,96 @@ useEffect(() => {
     ]);
   }
 }, [fetcher.state, fetcher.data]);
+const buildAssistantReply = (message: string): string => {
+  const normalized = normalizeText(message);
 
+  if (!normalized) {
+    return "Ask me anything about the menu or ordering.";
+  }
+
+  if (normalized.includes("help")) {
+    return "You can ask things like: 'show fruit tea', 'what toppings do you have', 'what is the cheapest drink', 'recommend something', or 'add classic milk tea'.";
+  }
+
+  if (normalized.includes("cart") || normalized.includes("order summary")) {
+    if (cart.length === 0) return "Your cart is empty right now.";
+    const summary = cart.map((item) => `${item.name} x${item.qty}`).join(", ");
+    return `Your cart has ${summary}. Current total: $${total.toFixed(2)}.`;
+  }
+
+  if (normalized.includes("topping")) {
+    return `Available toppings are ${TOPPINGS.map((t) => `${t.name} ($${t.price.toFixed(2)})`).join(", ")}.`;
+  }
+
+  if (normalized.includes("category") || normalized.startsWith("show menu")) {
+    return `Our categories are ${categories.join(", ")}.`;
+  }
+
+  const matchingCategory = categories.find((category) => {
+    const normalizedCategory = normalizeText(category);
+    return normalized.includes(normalizedCategory) || normalizedCategory.includes(normalized);
+  });
+
+  if (
+    matchingCategory &&
+    (normalized.includes("show") ||
+      normalized.includes("have") ||
+      normalized.includes("what") ||
+      normalized.includes("category"))
+  ) {
+    setActiveCategory(matchingCategory);
+    setShowCart(false);
+    const categoryItems = (menuItems[matchingCategory] ?? []).slice(0, 6);
+    const list = categoryItems.map((item) => `${item.name} ($${item.price.toFixed(2)})`).join(", ");
+    return `${matchingCategory} includes ${list}${(menuItems[matchingCategory] ?? []).length > 6 ? ", and more." : "."}`;
+  }
+
+  if (normalized.includes("cheapest") || normalized.includes("lowest price")) {
+    const cheapest = [...flatMenu].sort((a, b) => a.price - b.price)[0];
+    if (!cheapest) return "I couldn't find any menu items right now.";
+    return `The cheapest item right now is ${cheapest.name} from ${cheapest.category} for $${cheapest.price.toFixed(2)}.`;
+  }
+
+  if (
+    normalized.includes("recommend") ||
+    normalized.includes("popular") ||
+    normalized.includes("suggest")
+  ) {
+    const picks = [...flatMenu].slice(0, 3);
+    if (picks.length === 0) return "I couldn't load recommendations right now.";
+    return `You could try ${picks.map((item) => `${item.name} ($${item.price.toFixed(2)})`).join(", ")}.`;
+  }
+
+  const itemMatch = flatMenu.find((item) => {
+    const normalizedName = normalizeText(item.name);
+    return normalized.includes(normalizedName) || normalizedName.includes(normalized);
+  });
+
+  if (
+    itemMatch &&
+    (normalized.includes("price") || normalized.includes("cost") || normalized.includes("how much"))
+  ) {
+    return `${itemMatch.name} costs $${itemMatch.price.toFixed(2)}.`;
+  }
+
+  if (
+    itemMatch &&
+    (normalized.startsWith("add ") ||
+      normalized.includes("add to cart") ||
+      normalized.includes("order ") ||
+      normalized.includes("i want "))
+  ) {
+    addGeneratedCartItem(createCartItem(itemMatch));
+    setShowCart(true);
+    return `${itemMatch.name} was added to your cart with default options.`;
+  }
+
+  if (itemMatch) {
+    return `${itemMatch.name} is in the ${itemMatch.category} category and costs $${itemMatch.price.toFixed(2)}. Say 'add ${itemMatch.name.toLowerCase()}' if you want it in your cart.`;
+  }
+
+  return "I can help with categories, prices, toppings, recommendations, and adding drinks to your cart. Try 'show milk tea' or 'add taro milk tea'.";
+};
 const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
