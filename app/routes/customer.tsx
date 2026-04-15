@@ -165,6 +165,19 @@ export default function Customer() {
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
+  const [weather, setWeather] = useState<{ temp_f: number; condition: string } | null>(null);
+
+  // Fetch weather on mount, refresh every 10 minutes
+  useEffect(() => {
+    const fetchWeather = () =>
+      fetch("/api/weather")
+        .then((r) => r.json())
+        .then((d) => { if (!d.error) setWeather(d); })
+        .catch(() => {});
+    fetchWeather();
+    const id = setInterval(fetchWeather, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const openItem = (item: MenuItem) => {
     setSelectedItem(item);
@@ -225,6 +238,12 @@ export default function Customer() {
             </button>
             <p className="topbar-tagline">Shop Operations Suite</p>
           </div>
+          {weather && (
+            <div className="flex items-center gap-1.5 text-white/80 text-sm font-medium">
+              <span>{Math.round(weather.temp_f)}°F</span>
+              <span className="text-white/50 text-xs hidden sm:inline">· {weather.condition}</span>
+            </div>
+          )}
           <span className="topbar-chip">Customer Kiosk</span>
         </div>
       </header>

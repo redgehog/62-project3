@@ -8,5 +8,6 @@ export default [
   route("cashier", "routes/cashier.tsx"),
   route("customer", "routes/customer.tsx"),
   route("menu-board", "routes/menu-board.tsx"),
+  route("api/weather", "routes/api.weather.ts"),
   route("kitchen", "routes/kitchen.tsx"),
 ] satisfies RouteConfig;
