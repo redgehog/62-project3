@@ -244,6 +244,14 @@ const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
   },
 ]);
 
+const flatMenu = useMemo(
+  () =>
+    categories.flatMap((category) =>
+      (menuItems[category] ?? []).map((item) => ({ ...item, category }))
+    ),
+  [categories, menuItems]
+);
+
 const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
