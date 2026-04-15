@@ -239,10 +239,10 @@ export default function Customer() {
             <p className="topbar-tagline">Shop Operations Suite</p>
           </div>
           {weather && (
-            <div>
+            <div className="flex items-center gap-1.5 text-white/80 text-sm font-medium">
               <span>🌡</span>
               <span>{Math.round(weather.temp_f)}°F</span>
-              <span>{weather.condition}</span>
+              <span className="text-white/50 text-xs hidden sm:inline">· {weather.condition}</span>
             </div>
           )}
           <span className="topbar-chip">Customer Kiosk</span>
