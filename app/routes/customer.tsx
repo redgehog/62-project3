@@ -360,6 +360,29 @@ const buildAssistantReply = (message: string): string => {
 
   return "I can help with categories, prices, toppings, recommendations, and adding drinks to your cart. Try 'show milk tea' or 'add taro milk tea'.";
 };
+
+
+const sendChatMessage = () => {
+  const trimmed = chatInput.trim();
+  if (!trimmed) return;
+
+  const userMessage: ChatMessage = {
+    id: `user-${Date.now()}`,
+    role: "user",
+    text: trimmed,
+  };
+
+  const replyText = buildAssistantReply(trimmed);
+
+  const assistantMessage: ChatMessage = {
+    id: `assistant-${Date.now() + 1}`,
+    role: "assistant",
+    text: replyText,
+  };
+
+  setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
+  setChatInput("");
+};
 const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
