@@ -6,11 +6,11 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const PORTAL_LINKS = [
-  { label: "Manager", path: "/login?redirect=/manager", description: "Inventory, staffing, and reporting controls" },
-  { label: "Cashier", path: "/login?redirect=/cashier", description: "Fast checkout and order capture" },
+  { label: "Manager", path: "/manager-login", description: "Inventory, staffing, and reporting controls" },
+  { label: "Cashier", path: "/cashier-login?fresh=1", description: "Fast checkout and order capture" },
   { label: "Customer", path: "/customer", description: "Self-service ordering experience" },
   { label: "Menu Board", path: "/menu-board", description: "Live menu display for storefront screens" },
-  { label: "Kitchen", path: "/login?redirect=/kitchen", description: "Order queue and preparation workflow" },
+  { label: "Kitchen", path: "/kitchen", description: "Order queue and preparation workflow" },
 ];
 
 export default function Portal() {

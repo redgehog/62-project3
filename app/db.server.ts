@@ -27,4 +27,8 @@ pool.query(`
   ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending'
 `).catch(console.error);
 
+pool.query(`
+  ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS pin text
+`).catch(console.error);
+
 export default pool;
