@@ -6,34 +6,44 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Menu Board — Boba House" }];
 }
 
+const COLUMN_ORDER = ["Milk Tea", "Fruit Tea", "Brewed Tea", "Specialty", "Seasonal"];
 export async function loader() {
   const result = await pool.query(
     `SELECT name, category, price::float AS price,
             COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
+       AND LOWER(category) != 'poo'
      ORDER BY category, name`
   );
 
   const menu: Record<string, { name: string; price: number }[]> = {};
-  const categories: string[] = [];
+  const dbCategories = new Set<string>();
 
   for (const row of result.rows) {
     if (!menu[row.category]) {
       menu[row.category] = [];
-      categories.push(row.category);
+      dbCategories.add(row.category);
     }
     const item = { name: row.name, price: Number(row.price) };
     menu[row.category].push(item);
     if (row.isSeasonal) {
       if (!menu["Seasonal"]) {
         menu["Seasonal"] = [];
-        categories.push("Seasonal");
+        dbCategories.add("Seasonal");
       }
       menu["Seasonal"].push(item);
     }
   }
 
+  // Enforce display order; unknown categories slot in after known non-seasonal ones
+  const known = new Set(COLUMN_ORDER);
+  const others = [...dbCategories].filter((c) => !known.has(c) && c !== "Seasonal");
+  const categories = [
+    ...COLUMN_ORDER.filter((c) => c !== "Seasonal" && menu[c]),
+    ...others,
+    ...(menu["Seasonal"] ? ["Seasonal"] : []),
+  ];
   return { categories, menu };
 }
 
