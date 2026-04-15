@@ -252,6 +252,25 @@ const flatMenu = useMemo(
   [categories, menuItems]
 );
 
+useEffect(() => {
+  chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+}, [chatMessages, isChatOpen]);
+
+useEffect(() => {
+  if (fetcher.state === "idle" && fetcher.data?.ok) {
+    setCart([]);
+    setShowCart(false);
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        text: "Your order was placed successfully. Want help starting another order?",
+      },
+    ]);
+  }
+}, [fetcher.state, fetcher.data]);
+
 const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
