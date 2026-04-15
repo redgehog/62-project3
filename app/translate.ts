@@ -1,7 +1,3 @@
-// Translation utility using the Google Translate web endpoint
-// This is a free public web API and works for small demos.
-// For production, replace with an official paid translation service.
-
 const GOOGLE_TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single';
 
 export interface TranslationOptions {
@@ -43,15 +39,15 @@ export async function translateText(text: string, options: TranslationOptions): 
 
 // Common language codes for 8 major languages
 export const MAJOR_LANGUAGES = {
-  english: 'en',
-  spanish: 'es',
-  french: 'fr',
-  chinese: 'zh',
-  japanese: 'ja',
-  german: 'de',
-  italian: 'it',
-  portuguese: 'pt',
-  russian: 'ru',
+  'English': 'en',
+  'Español': 'es',
+  'Français': 'fr',
+  '中文': 'zh',
+  '日本語': 'ja',
+  'Deutsch': 'de',
+  'Italiano': 'it',
+  'Português': 'pt',
+  'Русский': 'ru',
 } as const;
 
 export type LanguageCode = typeof MAJOR_LANGUAGES[keyof typeof MAJOR_LANGUAGES];
