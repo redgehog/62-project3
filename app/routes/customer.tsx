@@ -383,6 +383,84 @@ const sendChatMessage = () => {
   setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
   setChatInput("");
 };
+
+
+<div className="section-card p-0 mb-6 overflow-hidden">
+  <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50">
+    <div>
+      <h3 className="text-sm font-bold text-slate-900">Personal Assistant</h3>
+      <p className="text-xs text-slate-500">Menu help and ordering assistant</p>
+    </div>
+    <button
+      onClick={() => setIsChatOpen((prev) => !prev)}
+      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+    >
+      {isChatOpen ? "Collapse" : "Open"}
+    </button>
+  </div>
+
+  {isChatOpen ? (
+    <>
+      <div className="h-72 overflow-y-auto px-4 py-4 space-y-3 bg-slate-50">
+        {chatMessages.map((message) => (
+          <div
+            key={message.id}
+            className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
+              message.role === "assistant"
+                ? "bg-white text-slate-800 border border-slate-200"
+                : "bg-indigo-600 text-white ml-auto"
+            }`}
+          >
+            {message.text}
+          </div>
+        ))}
+        <div ref={chatEndRef} />
+      </div>
+
+      <div className="border-t border-slate-200 p-3 bg-white">
+        <div className="flex gap-2 mb-2 flex-wrap">
+          {[
+            "Show milk tea",
+            "What toppings do you have?",
+            "What is the cheapest drink?",
+            "Recommend something",
+          ].map((prompt) => (
+            <button
+              key={prompt}
+              onClick={() => setChatInput(prompt)}
+              className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") sendChatMessage();
+            }}
+            placeholder="Ask about menu items or type 'add thai milk tea'"
+            className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button onClick={sendChatMessage} className="primary-btn px-4 py-2 text-sm">
+            Send
+          </button>
+        </div>
+      </div>
+    </>
+  ) : (
+    <button
+      onClick={() => setIsChatOpen(true)}
+      className="m-4 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-600 hover:bg-slate-50"
+    >
+      Open assistant
+    </button>
+  )}
+</div>
+
 const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
