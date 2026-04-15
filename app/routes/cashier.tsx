@@ -7,17 +7,33 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
 }
 
+const MILK_TYPES = ["Whole Milk", "Oat Milk", "Almond Milk", "Soy Milk", "No Milk"];
+const ICE_LEVELS  = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
+
+interface Topping {
+  id:    number;
+  name:  string;
+  price: number;
+}
+
+const TOPPINGS: Topping[] = [
+  { id: 14, name: "Boba",         price: 0.75 },
+  { id: 15, name: "Lychee Jelly", price: 0.75 },
+  { id: 16, name: "Grass Jelly",  price: 0.75 },
+  { id: 17, name: "Pudding",      price: 0.75 },
+];
+
 export async function loader() {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price,
-            COALESCE(is_seasonal, false) AS "isSeasonal"
+            COALESCE(is_seasonal, false) AS "isSeasonal", milk
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
   );
 
-  const rows = result.rows as { id: string; name: string; category: string; price: number; isSeasonal: boolean }[];
-  const byCategory: Record<string, { id: string; name: string; price: number }[]> = {};
+  const rows = result.rows as { id: string; name: string; category: string; price: number; isSeasonal: boolean; milk: string }[];
+  const byCategory: Record<string, { id: string; name: string; price: number; hasMilk: boolean }[]> = {};
   const categories: string[] = [];
 
   for (const row of rows) {
@@ -25,7 +41,7 @@ export async function loader() {
       byCategory[row.category] = [];
       categories.push(row.category);
     }
-    const item = { id: row.id, name: row.name, price: row.price };
+    const item = { id: row.id, name: row.name, price: row.price, hasMilk: !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "" };
     byCategory[row.category].push(item);
     if (row.isSeasonal) {
       if (!byCategory["Seasonal"]) {
@@ -87,11 +103,23 @@ export async function action({ request }: Route.ActionArgs) {
 
 const TAX_RATE = 0.0825;
 
+interface CashierMenuItem {
+  id:      string;
+  name:    string;
+  price:   number;
+  hasMilk: boolean;
+}
+
 interface OrderItem {
-  id: string;
-  name: string;
-  price: number;
-  qty: number;
+  cartKey:   string;
+  id:        string;
+  name:      string;
+  basePrice: number;
+  price:     number;
+  qty:       number;
+  milkLevel: string;
+  iceLevel:  string;
+  toppings:  Topping[];
 }
 
 export default function Cashier() {
@@ -103,7 +131,11 @@ export default function Cashier() {
     if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");
   }, []);
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
+  const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
+  const [milkLevel, setMilkLevel]               = useState("Whole Milk");
+  const [iceLevel, setIceLevel]                 = useState("Regular");
+  const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
 
   // Clear cart on successful order
   useEffect(() => {
@@ -112,19 +144,43 @@ export default function Cashier() {
     }
   }, [fetcher.state, fetcher.data]);
 
-  const addItem = (item: { id: string; name: string; price: number }) => {
-    setOrderItems((prev) => {
-      const existing = prev.find((o) => o.id === item.id);
-      if (existing) return prev.map((o) => o.id === item.id ? { ...o, qty: o.qty + 1 } : o);
-      return [...prev, { ...item, qty: 1 }];
-    });
+  const openItem = (item: CashierMenuItem) => {
+    setSelectedItem(item);
+    setMilkLevel("Whole Milk");
+    setIceLevel("Regular");
+    setSelectedToppings([]);
   };
 
-  const removeItem = (id: string) => setOrderItems((prev) => prev.filter((o) => o.id !== id));
+  const closePopup = () => setSelectedItem(null);
+
+  const toggleTopping = (id: number) =>
+    setSelectedToppings((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+
+  const confirmAddToCart = () => {
+    if (!selectedItem) return;
+    const toppings   = TOPPINGS.filter((t) => selectedToppings.includes(t.id));
+    const toppingIds = toppings.map((t) => t.id).sort().join(",");
+    const key        = `${selectedItem.id}-${milkLevel}-${iceLevel}-${toppingIds}`;
+    const itemTotal  = selectedItem.price + toppings.reduce((s, t) => s + t.price, 0);
+    setOrderItems((prev) => {
+      const existing = prev.find((o) => o.cartKey === key);
+      if (existing) return prev.map((o) => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+      return [...prev, {
+        cartKey: key, id: selectedItem.id, name: selectedItem.name,
+        basePrice: selectedItem.price, price: itemTotal,
+        qty: 1, milkLevel, iceLevel, toppings,
+      }];
+    });
+    closePopup();
+  };
+
+  const removeItem = (cartKey: string) => setOrderItems((prev) => prev.filter((o) => o.cartKey !== cartKey));
 
   const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-  const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax;
+  const tax      = subtotal * TAX_RATE;
+  const total    = subtotal + tax;
   const submitting = fetcher.state !== "idle";
 
   const handleSubmit = () => {
@@ -180,7 +236,7 @@ export default function Cashier() {
             {items.map((item) => (
               <button
                 key={item.id}
-                onClick={() => addItem(item)}
+                onClick={() => openItem(item)}
                 className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               >
                 <p className="text-sm font-semibold text-slate-900">{item.name}</p>
@@ -201,12 +257,21 @@ export default function Cashier() {
               <p className="text-sm text-slate-400 mt-2">No items added yet.</p>
             ) : (
               orderItems.map((item) => (
-                <div key={item.id} className="flex items-center justify-between py-2 border-b border-slate-100 text-sm">
-                  <span className="text-slate-800">{item.name} ×{item.qty}</span>
+                <div key={item.cartKey} className="flex items-center justify-between py-2 border-b border-slate-100 text-sm">
+                  <div>
+                    <p className="text-slate-800">{item.name} ×{item.qty}</p>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      {[
+                        item.milkLevel !== "Whole Milk" && `Milk: ${item.milkLevel}`,
+                        item.iceLevel  !== "Regular"    && `Ice: ${item.iceLevel}`,
+                        item.toppings.length > 0 && item.toppings.map((t) => t.name).join(", "),
+                      ].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
                   <span className="flex items-center gap-2 text-slate-700">
                     <span>${(item.price * item.qty).toFixed(2)}</span>
                     <button
-                      onClick={() => removeItem(item.id)}
+                      onClick={() => removeItem(item.cartKey)}
                       aria-label={`Remove ${item.name}`}
                       className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded"
                     >
@@ -246,8 +311,110 @@ export default function Cashier() {
 
       {/* Status bar */}
       <footer className="soft-footer px-6 py-1.5">
-        <p className="text-xs">Cashier — click items to add to order</p>
+        <p className="text-xs">Cashier — click an item to customize and add to order</p>
       </footer>
+
+      {/* Customization modal */}
+      {selectedItem && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Customize ${selectedItem.name}`}
+          onClick={(e) => { if (e.target === e.currentTarget) closePopup(); }}
+        >
+          <div className="surface-card w-full max-w-md p-6">
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
+                <p className="text-slate-500 text-sm mt-0.5">${selectedItem.price.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Ice level */}
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Ice Level</p>
+              <div className="grid grid-cols-4 gap-2">
+                {ICE_LEVELS.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setIceLevel(level)}
+                    className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${iceLevel === level
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
+                      }`}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Milk type — only for milk-based drinks */}
+            {selectedItem.hasMilk && (
+              <div className="mb-5">
+                <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {MILK_TYPES.map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setMilkLevel(level)}
+                      className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                        ${milkLevel === level
+                          ? "bg-indigo-600 border-indigo-600 text-white"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
+                        }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Toppings */}
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
+              <div className="grid grid-cols-2 gap-2">
+                {TOPPINGS.map((topping) => (
+                  <button
+                    key={topping.id}
+                    type="button"
+                    onClick={() => toggleTopping(topping.id)}
+                    className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${selectedToppings.includes(topping.id)
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
+                      }`}
+                  >
+                    {topping.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-2">
+              <button
+                type="button"
+                onClick={closePopup}
+                className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddToCart}
+                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors"
+              >
+                Add to Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

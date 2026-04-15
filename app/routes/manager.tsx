@@ -191,6 +191,33 @@ export async function action({ request }: Route.ActionArgs) {
     return { ok: true, report: reportText + "\n\nX/Z counters reset for next business day." };
   }
 
+  if (intent === "add-employee") {
+    const name       = formData.get("name") as string;
+    const start_date = formData.get("start_date") as string;
+    await pool.query(
+      `INSERT INTO "Employee" (employee_id, name, start_date) VALUES (gen_random_uuid(), $1, $2)`,
+      [name, start_date]
+    );
+    return { ok: true };
+  }
+
+  if (intent === "edit-employee") {
+    const id         = formData.get("id") as string;
+    const name       = formData.get("name") as string;
+    const start_date = formData.get("start_date") as string;
+    await pool.query(
+      `UPDATE "Employee" SET name = $1, start_date = $2 WHERE employee_id = $3::uuid`,
+      [name, start_date, id]
+    );
+    return { ok: true };
+  }
+
+  if (intent === "delete-employee") {
+    const id = formData.get("id") as string;
+    await pool.query(`DELETE FROM "Employee" WHERE employee_id = $1::uuid`, [id]);
+    return { ok: true };
+  }
+
   return { ok: false };
 }
 
@@ -233,7 +260,10 @@ export default function Manager() {
   const [editSeasonal, setEditSeasonal] = useState(false);
   const [xReport, setXReport]           = useState<string | null>(null);
   const [zReport, setZReport]           = useState<string | null>(null);
-  const [menuFilter, setMenuFilter]     = useState<"all" | "on" | "off">("all");
+  const [menuFilter, setMenuFilter]         = useState<"all" | "on" | "off">("all");
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [showAddEmployee, setShowAddEmployee]   = useState(false);
+  const [editEmployee, setEditEmployee]         = useState<Employee | null>(null);
 
   // Close modals after add/edit; update report text when returned
   useEffect(() => {
@@ -247,6 +277,9 @@ export default function Manager() {
         setShowAdd(false);
         setEditItem(null);
         setAddForm({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
+        setShowAddEmployee(false);
+        setEditEmployee(null);
+        setSelectedEmployee(null);
       }
     }
   }, [fetcher.state, fetcher.data]);
@@ -488,9 +521,18 @@ export default function Manager() {
           )}
 
           {activeTab === "Employees" && (
-            <section aria-label="Employee list">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Employees</h2>
-              <div className="section-card overflow-hidden">
+            <section aria-label="Employee management">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-900">Employees</h2>
+                <button
+                  onClick={() => setShowAddEmployee(true)}
+                  className="primary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                >
+                  + Add Employee
+                </button>
+              </div>
+
+              <div className="section-card overflow-hidden mb-4">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-200">
@@ -500,13 +542,45 @@ export default function Manager() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {employees.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-slate-50">
+                      <tr
+                        key={emp.id}
+                        onClick={() => setSelectedEmployee(selectedEmployee === emp.id ? null : emp.id)}
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === "Enter" && setSelectedEmployee(selectedEmployee === emp.id ? null : emp.id)}
+                        aria-selected={selectedEmployee === emp.id}
+                        className={`cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
+                          ${selectedEmployee === emp.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                      >
                         <td className="px-4 py-3 text-slate-900 font-medium">{emp.name}</td>
-                        <td className="px-4 py-3 text-slate-700">{emp.start_date}</td>
+                        <td className="px-4 py-3 text-slate-700">{emp.start_date.slice(0, 10)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    const emp = employees.find((e) => e.id === selectedEmployee);
+                    if (emp) setEditEmployee(emp);
+                  }}
+                  disabled={!selectedEmployee}
+                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Edit selected
+                </button>
+                <button
+                  onClick={() => {
+                    if (!selectedEmployee) return;
+                    if (!confirm("Delete this employee? This cannot be undone.")) return;
+                    fetcher.submit({ intent: "delete-employee", id: selectedEmployee }, { method: "post" });
+                  }}
+                  disabled={!selectedEmployee || busy}
+                  className="danger-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {busy ? "Deleting…" : "Delete selected"}
+                </button>
               </div>
             </section>
           )}
@@ -623,6 +697,73 @@ export default function Manager() {
                 </button>
                 <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Adding…" : "Add Item"}
+                </button>
+              </div>
+            </fetcher.Form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Employee Modal */}
+      {showAddEmployee && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddEmployee(false); }}
+        >
+          <div className="surface-card w-full max-w-sm p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-5">Add Employee</h2>
+            <fetcher.Form method="post" className="flex flex-col gap-4">
+              <input type="hidden" name="intent" value="add-employee" />
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input name="name" required className={inputCls} placeholder="Full name" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <input name="start_date" type="date" required className={inputCls} defaultValue={new Date().toISOString().slice(0, 10)} />
+              </div>
+              <div className="flex gap-3 mt-2">
+                <button type="button" onClick={() => setShowAddEmployee(false)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                  {busy ? "Adding…" : "Add Employee"}
+                </button>
+              </div>
+            </fetcher.Form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Employee Modal */}
+      {editEmployee && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditEmployee(null); }}
+        >
+          <div className="surface-card w-full max-w-sm p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Employee</h2>
+            <fetcher.Form method="post" className="flex flex-col gap-4">
+              <input type="hidden" name="intent" value="edit-employee" />
+              <input type="hidden" name="id" value={editEmployee.id} />
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input name="name" defaultValue={editEmployee.name} required className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <input name="start_date" type="date" defaultValue={editEmployee.start_date.slice(0, 10)} required className={inputCls} />
+              </div>
+              <div className="flex gap-3 mt-2">
+                <button type="button" onClick={() => setEditEmployee(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                  {busy ? "Saving…" : "Save Changes"}
                 </button>
               </div>
             </fetcher.Form>
