@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
+import { translateText } from "../translate";
+import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -127,10 +129,38 @@ export default function Cashier() {
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
 
+  const translationContext = useContext(TranslationContext);
+  if (!translationContext) throw new Error("Cashier must be rendered within TranslationContext");
+  const { language } = translationContext;
+
   useEffect(() => {
     if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");
   }, []);
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
+  const [translatedCategories, setTranslatedCategories] = useState(categories);
+  const [translatedMilkTypes, setTranslatedMilkTypes] = useState(MILK_TYPES);
+  const [translatedIceLevels, setTranslatedIceLevels] = useState(ICE_LEVELS);
+  const [translatedToppings, setTranslatedToppings] = useState(TOPPINGS);
+  const [translatedUI, setTranslatedUI] = useState({ menu: "Menu", select: "Select items to build the current order." });
+
+  useEffect(() => {
+    if (language === "en") {
+      setTranslatedCategories(categories);
+      setTranslatedMilkTypes(MILK_TYPES);
+      setTranslatedIceLevels(ICE_LEVELS);
+      setTranslatedToppings(TOPPINGS);
+      setTranslatedUI({ menu: "Menu", select: "Select items to build the current order." });
+      return;
+    }
+    Promise.all(categories.map(cat => translateText(cat, { to: language }))).then(setTranslatedCategories);
+    Promise.all(MILK_TYPES.map(mt => translateText(mt, { to: language }))).then(setTranslatedMilkTypes);
+    Promise.all(ICE_LEVELS.map(il => translateText(il, { to: language }))).then(setTranslatedIceLevels);
+    Promise.all(TOPPINGS.map(async t => ({ ...t, name: await translateText(t.name, { to: language }) }))).then(setTranslatedToppings);
+    Promise.all([
+      translateText("Menu", { to: language }),
+      translateText("Select items to build the current order.", { to: language })
+    ]).then(([menu, select]) => setTranslatedUI({ menu, select }));
+  }, [language, categories]);
   const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
   const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
@@ -229,8 +259,8 @@ export default function Cashier() {
         {/* Menu grid */}
         <div className="flex-1 section-card p-5 overflow-y-auto">
           <div className="mb-4">
-            <h2 className="section-title">Menu</h2>
-            <p className="section-description">Select items to build the current order.</p>
+            <h2 className="section-title">{translatedUI.menu}</h2>
+            <p className="section-description">{translatedUI.select}</p>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {items.map((item) => (
