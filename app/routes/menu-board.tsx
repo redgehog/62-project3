@@ -7,6 +7,14 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const COLUMN_ORDER = ["Milk Tea", "Fruit Tea", "Brewed Tea", "Specialty", "Seasonal"];
+
+const TOPPINGS = [
+  { name: "Boba",         price: 0.75 },
+  { name: "Lychee Jelly", price: 0.75 },
+  { name: "Grass Jelly",  price: 0.75 },
+  { name: "Pudding",      price: 0.75 },
+];
+
 export async function loader() {
   const result = await pool.query(
     `SELECT name, category, price::float AS price,
@@ -44,6 +52,9 @@ export async function loader() {
     ...others,
     ...(menu["Seasonal"] ? ["Seasonal"] : []),
   ];
+
+  categories.push("Toppings");
+
   return { categories, menu };
 }
 
@@ -72,7 +83,7 @@ export default function MenuBoard() {
               {cat === "Seasonal" ? "🍂 Seasonal" : cat}
             </h2>
             <ul className="flex flex-col gap-5" role="list">
-              {menu[cat].map((item) => (
+              {(cat === "Toppings" ? TOPPINGS : menu[cat]).map((item) => (
                 <li key={item.name} className="flex items-baseline justify-between gap-4">
                   <span className="text-slate-100 text-base font-medium">{item.name}</span>
                   <span className="text-slate-300 text-sm whitespace-nowrap">${item.price.toFixed(2)}</span>
@@ -83,10 +94,6 @@ export default function MenuBoard() {
         ))}
       </div>
 
-      {/* Footer */}
-      <footer className="bg-slate-800 border-t border-slate-700 px-8 py-2 shrink-0">
-        <p className="text-slate-400 text-xs text-center">Add any topping for $0.75</p>
-      </footer>
     </div>
   );
 }
