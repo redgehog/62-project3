@@ -165,6 +165,19 @@ export default function Customer() {
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
+  const [weather, setWeather] = useState<{ temp_f: number; condition: string } | null>(null);
+
+  // Fetch weather on mount, refresh every 10 minutes
+  useEffect(() => {
+    const fetchWeather = () =>
+      fetch("/api/weather")
+        .then((r) => r.json())
+        .then((d) => { if (!d.error) setWeather(d); })
+        .catch(() => {});
+    fetchWeather();
+    const id = setInterval(fetchWeather, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const openItem = (item: MenuItem) => {
     setSelectedItem(item);
