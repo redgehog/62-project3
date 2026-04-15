@@ -18,6 +18,12 @@ const ALLERGEN_ICONS: Record<string, string> = {
   eggs:       "🥚",
 };
 
+interface ChatMessage {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+}
+
 interface MenuItem {
   id:        string;
   name:      string;
@@ -53,6 +59,24 @@ interface CartItem {
 }
 
 export async function loader() {
+
+  function normalizeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function createCartItem(item: MenuItem): CartItem {
+  return {
+    cartKey: `${item.id}-Whole Milk-Regular-`,
+    id: item.id,
+    name: item.name,
+    basePrice: item.price,
+    price: item.price,
+    qty: 1,
+    milkLevel: item.hasMilk ? "Whole Milk" : "No Milk",
+    iceLevel: "Regular",
+    toppings: [],
+  };
+}
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price, milk,
             COALESCE(is_seasonal, false) AS "isSeasonal"
@@ -210,7 +234,17 @@ export default function Customer() {
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const total      = cart.reduce((s, c) => s + c.price * c.qty, 0);
   const items      = menuItems[activeCategory] ?? [];
+const [isChatOpen, setIsChatOpen] = useState(true);
+const [chatInput, setChatInput] = useState("");
+const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+  {
+    id: "welcome",
+    role: "assistant",
+    text: "Hi! I'm Bobi, your Boba House assistant. Ask about categories, prices, toppings, recommendations, or say 'add thai milk tea' and I'll put it in your cart.",
+  },
+]);
 
+const chatEndRef = useRef<HTMLDivElement | null>(null);
   return (
     <div className="h-screen flex flex-col app-shell">
       {/* Header */}
@@ -490,4 +524,6 @@ export default function Customer() {
       )}
     </div>
   );
+
+  
 }
