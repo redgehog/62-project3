@@ -98,15 +98,28 @@ function OrderCard({ order }: { order: KitchenOrder }) {
 export default function Kitchen() {
   const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [translatedUI, setTranslatedUI] = useState({
+    activeQueue: "Active Queue",
+    trackPending: "Track pending orders and mark them complete when fulfilled.",
+    noPending: "No pending orders",
+    noMatching: "No orders match your search.",
+    searchOrders: "Search orders",
+    searchPlaceholder: "Order number or item name"
+  });
 
   const translationContext = useContext(TranslationContext);
   if (!translationContext) throw new Error("Kitchen must be rendered within TranslationContext");
   const { language } = translationContext;
 
-  const [translatedUI, setTranslatedUI] = useState({
-    activeQueue: "Active Queue",
-    trackPending: "Track pending orders and mark them complete when fulfilled.",
-    noPending: "No pending orders"
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const filteredOrders = orders.filter((order) => {
+    if (!normalizedSearchTerm) return true;
+    const orderNumber = order.id.slice(-6).toLowerCase();
+    return (
+      orderNumber.includes(normalizedSearchTerm) ||
+      order.items.some((item) => item.name.toLowerCase().includes(normalizedSearchTerm))
+    );
   });
 
   useEffect(() => {
@@ -114,16 +127,22 @@ export default function Kitchen() {
       setTranslatedUI({
         activeQueue: "Active Queue",
         trackPending: "Track pending orders and mark them complete when fulfilled.",
-        noPending: "No pending orders"
+        noPending: "No pending orders",
+        noMatching: "No orders match your search.",
+        searchOrders: "Search orders",
+        searchPlaceholder: "Order number or item name"
       });
       return;
     }
     Promise.all([
       translateText("Active Queue", { to: language }),
       translateText("Track pending orders and mark them complete when fulfilled.", { to: language }),
-      translateText("No pending orders", { to: language })
-    ]).then(([activeQueue, trackPending, noPending]) => {
-      setTranslatedUI({ activeQueue, trackPending, noPending });
+      translateText("No pending orders", { to: language }),
+      translateText("No orders match your search.", { to: language }),
+      translateText("Search orders", { to: language }),
+      translateText("Order number or item name", { to: language })
+    ]).then(([activeQueue, trackPending, noPending, noMatching, searchOrders, searchPlaceholder]) => {
+      setTranslatedUI({ activeQueue, trackPending, noPending, noMatching, searchOrders, searchPlaceholder });
     });
   }, [language]);
 
@@ -152,14 +171,29 @@ export default function Kitchen() {
         <div className="mb-4">
           <h2 className="section-title">{translatedUI.activeQueue}</h2>
           <p className="section-description">{translatedUI.trackPending}</p>
+          <div className="mt-4">
+            <label htmlFor="order-search" className="text-sm font-medium text-slate-700 mb-2 block">
+              {translatedUI.searchOrders}
+            </label>
+            <input
+              id="order-search"
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={translatedUI.searchPlaceholder}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
         </div>
-        {orders.length === 0 ? (
+        {filteredOrders.length === 0 ? (
           <div className="section-card flex items-center justify-center h-[70vh]">
-            <p className="text-slate-400 text-lg font-medium">{translatedUI.noPending}</p>
+            <p className="text-slate-400 text-lg font-medium">
+              {orders.length === 0 ? translatedUI.noPending : translatedUI.noMatching}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-5 gap-4 pb-4">
-            {orders.map((order) => (
+            {filteredOrders.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}
           </div>
@@ -168,7 +202,9 @@ export default function Kitchen() {
 
       <footer className="soft-footer px-6 py-1.5 shrink-0">
         <p className="text-xs">
-          {orders.length} order{orders.length !== 1 ? "s" : ""} pending
+          {searchTerm.trim()
+            ? `${filteredOrders.length} of ${orders.length} orders shown`
+            : `${orders.length} order${orders.length !== 1 ? "s" : ""} pending`}
         </p>
       </footer>
     </div>
