@@ -99,6 +99,7 @@ export default function Kitchen() {
   const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortOrder, setSortOrder] = useState<"oldest" | "newest">("oldest");
   const [translatedUI, setTranslatedUI] = useState({
     activeQueue: "Active Queue",
     trackPending: "Track pending orders and mark them complete when fulfilled.",
@@ -121,6 +122,8 @@ export default function Kitchen() {
       order.items.some((item) => item.name.toLowerCase().includes(normalizedSearchTerm))
     );
   });
+
+  const displayedOrders = sortOrder === "oldest" ? filteredOrders : [...filteredOrders].reverse();
 
   useEffect(() => {
     if (language === "en") {
@@ -183,6 +186,16 @@ export default function Kitchen() {
               placeholder={translatedUI.searchPlaceholder}
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-sm text-slate-600">Sort:</span>
+              <button
+                type="button"
+                onClick={() => setSortOrder((current) => (current === "oldest" ? "newest" : "oldest"))}
+                className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {sortOrder === "oldest" ? "Newest first" : "Oldest first"}
+              </button>
+            </div>
           </div>
         </div>
         {filteredOrders.length === 0 ? (
@@ -193,7 +206,7 @@ export default function Kitchen() {
           </div>
         ) : (
           <div className="grid grid-cols-5 gap-4 pb-4">
-            {filteredOrders.map((order) => (
+            {displayedOrders.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}
           </div>
