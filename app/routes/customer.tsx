@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
+import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Order — Boba House" }];
@@ -150,7 +151,7 @@ export default function Customer() {
   const { categories, menuItems } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
 
-  const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
+  const [activeCategory, setActiveCategory] = useState(0); // index of category
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [showCart, setShowCart]             = useState(false);
 
@@ -178,6 +179,61 @@ export default function Customer() {
     const id = setInterval(fetchWeather, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
+
+  const [language, setLanguage] = useState<LanguageCode>('en');
+  const [translatedCategories, setTranslatedCategories] = useState(categories);
+  const [translatedMenuItems, setTranslatedMenuItems] = useState(menuItems);
+  const [translatedMilkTypes, setTranslatedMilkTypes] = useState(MILK_TYPES);
+  const [translatedIceLevels, setTranslatedIceLevels] = useState(ICE_LEVELS);
+  const [translatedToppings, setTranslatedToppings] = useState(TOPPINGS);
+
+  const currentCategory = categories[activeCategory];
+  const translatedCurrentCategory = translatedCategories[activeCategory];
+  const items = translatedMenuItems[translatedCurrentCategory] ?? [];
+
+  // Translate strings when language changes
+  useEffect(() => {
+    if (language === 'en') {
+      setTranslatedCategories(categories);
+      setTranslatedMenuItems(menuItems);
+      setTranslatedMilkTypes(MILK_TYPES);
+      setTranslatedIceLevels(ICE_LEVELS);
+      setTranslatedToppings(TOPPINGS);
+      return;
+    }
+
+    // Translate categories
+    Promise.all(categories.map(cat => translateText(cat, { to: language })))
+      .then(setTranslatedCategories);
+
+    // Translate menu item names
+    const translateMenu = async () => {
+      const newMenu: typeof menuItems = {};
+      for (const [cat, items] of Object.entries(menuItems)) {
+        const translatedCat = await translateText(cat, { to: language });
+        newMenu[translatedCat] = await Promise.all(
+          items.map(async item => ({
+            ...item,
+            name: await translateText(item.name, { to: language })
+          }))
+        );
+      }
+      setTranslatedMenuItems(newMenu);
+    };
+    translateMenu();
+
+    // Translate milk types
+    Promise.all(MILK_TYPES.map(mt => translateText(mt, { to: language })))
+      .then(setTranslatedMilkTypes);
+
+    // Translate ice levels
+    Promise.all(ICE_LEVELS.map(il => translateText(il, { to: language })))
+      .then(setTranslatedIceLevels);
+
+    // Translate toppings
+    Promise.all(TOPPINGS.map(async t => ({ ...t, name: await translateText(t.name, { to: language }) })))
+      .then(setTranslatedToppings);
+  }, [language, categories, menuItems]);
 
   const openItem = (item: MenuItem) => {
     setSelectedItem(item);
@@ -222,7 +278,6 @@ export default function Customer() {
 
   const totalItems = cart.reduce((s, c) => s + c.qty, 0);
   const total      = cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const items      = menuItems[activeCategory] ?? [];
 
   return (
     <div className="h-screen flex flex-col app-shell">
@@ -245,6 +300,17 @@ export default function Customer() {
             </div>
           )}
           <span className="topbar-chip">Customer Kiosk</span>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+            className="ml-4 px-2 py-1 text-sm bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {Object.entries(MAJOR_LANGUAGES).map(([name, code]) => (
+              <option key={code} value={code}>
+                {name.charAt(0).toUpperCase() + name.slice(1)}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
@@ -333,18 +399,18 @@ export default function Customer() {
             <div className="mb-5">
               <div
                 className="grid gap-2 w-full"
-                style={{ gridTemplateColumns: `repeat(${Math.max(categories.length, 1)}, minmax(0, 1fr))` }}
+                style={{ gridTemplateColumns: `repeat(${Math.max(translatedCategories.length, 1)}, minmax(0, 1fr))` }}
               >
-                {categories.map((cat) => (
+                {translatedCategories.map((cat, i) => (
                   <button
-                    key={cat}
+                    key={i}
                     onClick={() => {
-                      setActiveCategory(cat);
+                      setActiveCategory(i);
                       setShowCart(false);
                     }}
-                    aria-pressed={activeCategory === cat}
+                    aria-pressed={activeCategory === i}
                     className={`px-3 py-2.5 rounded-lg text-sm font-semibold text-center transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      activeCategory === cat
+                      activeCategory === i
                         ? "bg-indigo-600 text-white shadow-sm"
                         : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200"
                     }`}
@@ -356,7 +422,7 @@ export default function Customer() {
             </div>
 
             <div className="mb-4">
-              <h3 className="text-base font-semibold text-slate-900">{activeCategory}</h3>
+              <h3 className="text-base font-semibold text-slate-900">{translatedCurrentCategory}</h3>
               <p className="section-description">Available items in this category.</p>
             </div>
 
@@ -428,7 +494,7 @@ export default function Customer() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Ice Level</p>
               <div className="grid grid-cols-4 gap-2">
-                {ICE_LEVELS.map((level) => (
+                {translatedIceLevels.map((level) => (
                   <button
                     key={level}
                     onClick={() => setIceLevel(level)}
@@ -449,7 +515,7 @@ export default function Customer() {
               <div className="mb-5">
                 <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {MILK_TYPES.map((level) => (
+                  {translatedMilkTypes.map((level) => (
                     <button
                       key={level}
                       onClick={() => setMilkLevel(level)}
@@ -470,7 +536,7 @@ export default function Customer() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
               <div className="grid grid-cols-2 gap-2">
-                {TOPPINGS.map((topping) => (
+                {translatedToppings.map((topping) => (
                   <button
                     key={topping.id}
                     onClick={() => toggleTopping(topping.id)}

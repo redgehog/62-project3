@@ -1,6 +1,9 @@
+import { useEffect, useContext, useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/kitchen";
 import pool from "../db.server";
+import { translateText } from "../translate";
+import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Kitchen — Boba House" }];
@@ -96,6 +99,38 @@ export default function Kitchen() {
   const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
 
+  const translationContext = useContext(TranslationContext);
+  if (!translationContext) throw new Error("Kitchen must be rendered within TranslationContext");
+  const { language } = translationContext;
+
+  const [translatedUI, setTranslatedUI] = useState({
+    activeQueue: "Active Queue",
+    trackPending: "Track pending orders and mark them complete when fulfilled.",
+    noPending: "No pending orders"
+  });
+
+  useEffect(() => {
+    if (language === "en") {
+      setTranslatedUI({
+        activeQueue: "Active Queue",
+        trackPending: "Track pending orders and mark them complete when fulfilled.",
+        noPending: "No pending orders"
+      });
+      return;
+    }
+    Promise.all([
+      translateText("Active Queue", { to: language }),
+      translateText("Track pending orders and mark them complete when fulfilled.", { to: language }),
+      translateText("No pending orders", { to: language })
+    ]).then(([activeQueue, trackPending, noPending]) => {
+      setTranslatedUI({ activeQueue, trackPending, noPending });
+    });
+  }, [language]);
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/kitchen");
+  }, []);
+
   return (
     <div className="h-screen flex flex-col app-shell">
       <header className="app-header px-6 py-4 shrink-0">
@@ -115,12 +150,12 @@ export default function Kitchen() {
 
       <div className="flex-1 page-section w-full px-4 py-5 overflow-y-auto">
         <div className="mb-4">
-          <h2 className="section-title">Active Queue</h2>
-          <p className="section-description">Track pending orders and mark them complete when fulfilled.</p>
+          <h2 className="section-title">{translatedUI.activeQueue}</h2>
+          <p className="section-description">{translatedUI.trackPending}</p>
         </div>
         {orders.length === 0 ? (
           <div className="section-card flex items-center justify-center h-[70vh]">
-            <p className="text-slate-400 text-lg font-medium">No pending orders</p>
+            <p className="text-slate-400 text-lg font-medium">{translatedUI.noPending}</p>
           </div>
         ) : (
           <div className="grid grid-cols-5 gap-4 pb-4">

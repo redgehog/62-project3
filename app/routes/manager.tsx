@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
 import { requireSignedIn } from "../clerk-auth.server";
+import { translateText } from "../translate";
+import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager — Boba House" }];
@@ -251,7 +253,30 @@ export default function Manager() {
   const navigate  = useNavigate();
   const fetcher   = useFetcher<typeof action>();
 
+  const translationContext = useContext(TranslationContext);
+  if (!translationContext) throw new Error("Manager must be rendered within TranslationContext");
+  const { language } = translationContext;
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/manager");
+  }, []);
+
   const [activeTab, setActiveTab]     = useState("Inventory");
+  const [translatedUI, setTranslatedUI] = useState({ inventory: "Inventory", employees: "Employees" });
+
+  useEffect(() => {
+    if (language === "en") {
+      setTranslatedUI({ inventory: "Inventory", employees: "Employees" });
+      return;
+    }
+    Promise.all([
+      translateText("Inventory", { to: language }),
+      translateText("Employees", { to: language })
+    ]).then(([inventory, employees]) => {
+      setTranslatedUI({ inventory, employees });
+    });
+  }, [language]);
+
   const [selected, setSelected]       = useState<string | null>(null);
   const [showAdd, setShowAdd]         = useState(false);
   const [editItem, setEditItem]       = useState<InventoryItem | null>(null);
@@ -338,7 +363,7 @@ export default function Manager() {
           {activeTab === "Inventory" && (
             <section aria-label="Inventory management">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-slate-900">Inventory</h2>
+                <h2 className="text-lg font-bold text-slate-900">{translatedUI.inventory}</h2>
                 <button
                   onClick={() => setShowAdd(true)}
                   className="primary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
