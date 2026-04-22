@@ -8,6 +8,8 @@ import {
   requireCashierAccess,
 } from "../cashier-access.server";
 import { translateText } from "../translate";
+import { TranslationContext } from "../root";
+import { applyTax, calcTax, TAX_RATE } from "../lib/pricing";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -100,7 +102,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
 
   const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const totalPrice = subtotal * (1 + 0.0825);
+  const totalPrice = applyTax(subtotal);
   const totalQty   = items.reduce((s, i) => s + i.qty, 0);
 
   const { rows } = await pool.query(
@@ -118,7 +120,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const taxAmount = (totalPrice - subtotal).toFixed(2);
+  const taxAmount = calcTax(subtotal).toFixed(2);
   await pool.query(
     `INSERT INTO pos_sales_activity
      (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
@@ -128,8 +130,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   return { ok: true };
 }
-
-const TAX_RATE = 0.0825;
 
 interface CashierMenuItem {
   id:      string;

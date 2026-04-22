@@ -3,6 +3,7 @@ import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
+import { applyTax, calcTax } from "../lib/pricing";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Order — Boba House" }];
@@ -120,7 +121,8 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const totalQty   = items.reduce((s, i) => s + i.qty, 0);
-  const totalPrice = items.reduce((s, i) => s + i.basePrice * i.qty, 0) * (1 + 0.0825);
+  const subtotalRaw = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
+  const totalPrice = applyTax(subtotalRaw);
 
   const { rows } = await pool.query(
     `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity)
@@ -137,8 +139,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const subtotal = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
-  const taxAmount = (totalPrice - subtotal).toFixed(2);
+  const taxAmount = calcTax(subtotalRaw).toFixed(2);
   await pool.query(
     `INSERT INTO pos_sales_activity
      (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
