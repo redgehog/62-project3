@@ -193,7 +193,6 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
-const TAX_RATE = 0.0825;
 
 interface CashierMenuItem {
   id:      string;
