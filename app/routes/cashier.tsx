@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
@@ -76,6 +76,19 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
+  if (intent === "lookup-customer") {
+    await requireCashierAccess(request);
+    const phone = String(formData.get("phone") || "").trim();
+    if (!phone) return { ok: false as const, error: "Phone required" };
+    const { rows } = await pool.query(
+      `SELECT customer_id::text AS id, name, COALESCE(points, 0)::int AS points
+       FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [phone]
+    );
+    if (rows.length === 0) return { notFound: true as const };
+    return { customer: rows[0] as { id: string; name: string; points: number } };
+  }
+
   await requireCashierAccess(request);
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; price: number; qty: number;
@@ -88,21 +101,38 @@ export async function action({ request }: Route.ActionArgs) {
   const session = await getCashierSession(request);
   const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
 
-  const [empRow, custRow] = await Promise.all([
-    sessionEmployeeId
-      ? pool.query(
-          `SELECT employee_id
-           FROM "Employee"
-           WHERE employee_id = $1::uuid
-           LIMIT 1`,
-          [sessionEmployeeId]
-        )
-      : pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
-    pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
-  ]);
+  const formCustomerId    = String(formData.get("customerId")    || "").trim();
+  const formCustomerPhone = String(formData.get("customerPhone") || "").trim();
+
+  const empRow = await (sessionEmployeeId
+    ? pool.query(`SELECT employee_id FROM "Employee" WHERE employee_id = $1::uuid LIMIT 1`, [sessionEmployeeId])
+    : pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`));
   const employeeId = empRow.rows[0]?.employee_id;
-  const customerId = custRow.rows[0]?.customer_id;
-  if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
+  if (!employeeId) return { ok: false, error: "No employee record found" };
+
+  let customerId: string;
+  if (formCustomerId) {
+    customerId = formCustomerId;
+  } else if (formCustomerPhone) {
+    const existing = await pool.query(
+      `SELECT customer_id FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [formCustomerPhone]
+    );
+    if (existing.rows.length > 0) {
+      customerId = existing.rows[0].customer_id;
+    } else {
+      const created = await pool.query(
+        `INSERT INTO "Customer" (customer_id, name, phone_number, points)
+         VALUES (gen_random_uuid(), $1, $2, 0) RETURNING customer_id`,
+        [customerName, formCustomerPhone]
+      );
+      customerId = created.rows[0].customer_id;
+    }
+  } else {
+    const fallback = await pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`);
+    customerId = fallback.rows[0]?.customer_id;
+    if (!customerId) return { ok: false, error: "No customer record found" };
+  }
 
   const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
   const totalPrice = applyTax(subtotal);
@@ -187,7 +217,8 @@ interface OrderItem {
 export default function Cashier() {
   const navigate = useNavigate();
   const { categories, byCategory } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const fetcher       = useFetcher<typeof action>();
+  const lookupFetcher = useFetcher<typeof action>();
 
   const translationContext = useContext(TranslationContext);
   const language = translationContext?.language ?? "en";
@@ -226,14 +257,31 @@ export default function Cashier() {
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [customerName, setCustomerName]         = useState("");
+  const [customerPhone, setCustomerPhone]       = useState("");
+  const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
 
   // Clear cart on successful order
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
+    if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
       setOrderItems([]);
       setCustomerName("");
+      setCustomerPhone("");
+      setLookedUpCustomer(null);
     }
   }, [fetcher.state, fetcher.data]);
+
+  // Handle customer phone lookup result
+  useEffect(() => {
+    const data = lookupFetcher.data;
+    if (!data || lookupFetcher.state !== "idle") return;
+    if ("customer" in data) {
+      const c = data.customer as { id: string; name: string; points: number };
+      setLookedUpCustomer(c);
+      setCustomerName(c.name);
+    } else if ("notFound" in data) {
+      setLookedUpCustomer("not-found");
+    }
+  }, [lookupFetcher.state, lookupFetcher.data]);
 
   const openItem = (item: CashierMenuItem) => {
     setSelectedItem(item);
@@ -274,16 +322,27 @@ export default function Cashier() {
   const total    = subtotal + tax;
   const submitting = fetcher.state !== "idle";
 
+  const handleLookup = () => {
+    if (!customerPhone.trim()) return;
+    lookupFetcher.submit(
+      { intent: "lookup-customer", phone: customerPhone.trim() },
+      { method: "post" }
+    );
+  };
+
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
     if (!customerName.trim()) return;
-    fetcher.submit(
-      {
-        cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
-        customerName: customerName.trim(),
-      },
-      { method: "post" }
-    );
+    const payload: Record<string, string> = {
+      cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
+      customerName: customerName.trim(),
+    };
+    if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
+      payload.customerId = lookedUpCustomer.id;
+    } else if (customerPhone.trim()) {
+      payload.customerPhone = customerPhone.trim();
+    }
+    fetcher.submit(payload, { method: "post" });
   };
 
   const items = byCategory[activeCategory] ?? [];
@@ -394,8 +453,38 @@ export default function Cashier() {
           </div>
 
           <div className="px-4 py-4 border-t border-slate-200 space-y-2 text-sm">
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-slate-600">Phone Number</span>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
+                  placeholder="555-867-5309"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleLookup}
+                  disabled={!customerPhone.trim() || lookupFetcher.state !== "idle"}
+                  className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {lookupFetcher.state !== "idle" ? "…" : "Look up"}
+                </button>
+              </div>
+              {lookedUpCustomer === "not-found" && (
+                <p className="text-xs text-amber-600">No member found — enter a name below to create one.</p>
+              )}
+              {lookedUpCustomer && lookedUpCustomer !== "not-found" && (
+                <p className="text-xs text-emerald-600 font-medium">
+                  Found: {lookedUpCustomer.name} · {lookedUpCustomer.points} pts
+                </p>
+              )}
+            </div>
             <label className="block text-slate-600">
-              <span className="mb-1 block">Customer Name</span>
+              <span className="mb-1 block text-xs font-medium">
+                {lookedUpCustomer === "not-found" ? "Customer Name (new member)" : "Customer Name"}
+              </span>
               <input
                 type="text"
                 value={customerName}
@@ -420,9 +509,9 @@ export default function Cashier() {
             >
               {submitting ? "Submitting…" : "Submit Order"}
             </button>
-            {fetcher.data && !fetcher.data.ok && (
+            {"ok" in (fetcher.data ?? {}) && !(fetcher.data as { ok: boolean }).ok && (
               <p className="text-xs text-red-600 mt-1 text-center">
-                {"error" in fetcher.data ? fetcher.data.error : "Failed to submit order"}
+                {"error" in fetcher.data! ? (fetcher.data as { error: string }).error : "Failed to submit order"}
               </p>
             )}
           </div>

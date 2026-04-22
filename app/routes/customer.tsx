@@ -1,3 +1,4 @@
+// Customer ordering kiosk
 import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
@@ -97,19 +98,57 @@ export async function loader() {
 
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
+
+  if (intent === "lookup-customer") {
+    const phone = String(formData.get("phone") || "").trim();
+    if (!phone) return { ok: false as const, error: "Phone required" };
+    const { rows } = await pool.query(
+      `SELECT customer_id::text AS id, name, COALESCE(points, 0)::int AS points
+       FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [phone]
+    );
+    if (rows.length === 0) return { notFound: true as const };
+    return { customer: rows[0] as { id: string; name: string; points: number } };
+  }
+
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; basePrice: number; qty: number;
   }>;
 
   if (!items.length) return { ok: false };
 
-  const [empRow, custRow] = await Promise.all([
-    pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
-    pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
-  ]);
+  const formCustomerId    = String(formData.get("customerId")    || "").trim();
+  const formCustomerPhone = String(formData.get("customerPhone") || "").trim();
+  const formCustomerName  = String(formData.get("customerName")  || "").trim() || "Kiosk Customer";
+
+  const empRow = await pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`);
   const employeeId = empRow.rows[0]?.employee_id;
-  const customerId = custRow.rows[0]?.customer_id;
-  if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
+  if (!employeeId) return { ok: false, error: "No employee record found" };
+
+  let customerId: string;
+  if (formCustomerId) {
+    customerId = formCustomerId;
+  } else if (formCustomerPhone) {
+    const existing = await pool.query(
+      `SELECT customer_id FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [formCustomerPhone]
+    );
+    if (existing.rows.length > 0) {
+      customerId = existing.rows[0].customer_id;
+    } else {
+      const created = await pool.query(
+        `INSERT INTO "Customer" (customer_id, name, phone_number, points)
+         VALUES (gen_random_uuid(), $1, $2, 0) RETURNING customer_id`,
+        [formCustomerName, formCustomerPhone]
+      );
+      customerId = created.rows[0].customer_id;
+    }
+  } else {
+    const fallback = await pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`);
+    customerId = fallback.rows[0]?.customer_id;
+    if (!customerId) return { ok: false, error: "No customer record found" };
+  }
 
   // Group by item_id — same item with different customizations shares a DB row
   const grouped: Record<string, { price: number; qty: number }> = {};
@@ -131,8 +170,8 @@ export async function action({ request }: Route.ActionArgs) {
     const orderNumber = await getNextOrderNumber(client);
     const { rows } = await client.query(
       `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
-       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, 'Kiosk Customer', $5) RETURNING order_id`,
-      [employeeId, customerId, totalPrice.toFixed(2), totalQty, orderNumber]
+       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
+      [employeeId, customerId, totalPrice.toFixed(2), totalQty, formCustomerName, orderNumber]
     );
     const orderId = rows[0].order_id;
 
@@ -183,20 +222,36 @@ async function getNextOrderNumber(client: PoolClient) {
 export default function Customer() {
   const navigate = useNavigate();
   const { categories, menuItems } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const fetcher       = useFetcher<typeof action>();
+  const lookupFetcher = useFetcher<typeof action>();
 
   const [activeCategory, setActiveCategory] = useState(0); // index of category
   const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [showCart, setShowCart]             = useState(false);
+  const [customerPhone, setCustomerPhone]       = useState("");
+  const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
 
   // Clear cart on successful order
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
+    if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
       setCart([]);
       setShowCart(false);
+      setCustomerPhone("");
+      setLookedUpCustomer(null);
     }
   }, [fetcher.state, fetcher.data]);
+
+  // Handle phone lookup result
+  useEffect(() => {
+    const data = lookupFetcher.data;
+    if (!data || lookupFetcher.state !== "idle") return;
+    if ("customer" in data) {
+      setLookedUpCustomer(data.customer as { id: string; name: string; points: number });
+    } else if ("notFound" in data) {
+      setLookedUpCustomer("not-found");
+    }
+  }, [lookupFetcher.state, lookupFetcher.data]);
   const [selectedItem, setSelectedItem]         = useState<MenuItem | null>(null);
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
@@ -398,19 +453,61 @@ export default function Customer() {
                 <div className="mt-4 flex items-center justify-between font-bold text-slate-900 text-base">
                   <span>Total</span><span>${total.toFixed(2)}</span>
                 </div>
-                <button
-                  onClick={() => fetcher.submit(
-                    { cart: JSON.stringify(cart.map((i) => ({ id: i.id, basePrice: i.basePrice, qty: i.qty }))) },
-                    { method: "post" }
+                <div className="mt-4 space-y-2">
+                  <span className="block text-xs font-medium text-slate-600">Phone Number (optional — earn loyalty points)</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
+                      placeholder="555-867-5309"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!customerPhone.trim()) return;
+                        lookupFetcher.submit(
+                          { intent: "lookup-customer", phone: customerPhone.trim() },
+                          { method: "post" }
+                        );
+                      }}
+                      disabled={!customerPhone.trim() || lookupFetcher.state !== "idle"}
+                      className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {lookupFetcher.state !== "idle" ? "…" : "Look up"}
+                    </button>
+                  </div>
+                  {lookedUpCustomer === "not-found" && (
+                    <p className="text-xs text-amber-600">No account found — a new one will be created for this number.</p>
                   )}
+                  {lookedUpCustomer && lookedUpCustomer !== "not-found" && (
+                    <p className="text-xs text-emerald-600 font-medium">
+                      Welcome back, {lookedUpCustomer.name}! · {lookedUpCustomer.points} pts
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    const payload: Record<string, string> = {
+                      cart: JSON.stringify(cart.map((i) => ({ id: i.id, basePrice: i.basePrice, qty: i.qty }))),
+                    };
+                    if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
+                      payload.customerId    = lookedUpCustomer.id;
+                      payload.customerName  = lookedUpCustomer.name;
+                    } else if (customerPhone.trim()) {
+                      payload.customerPhone = customerPhone.trim();
+                    }
+                    fetcher.submit(payload, { method: "post" });
+                  }}
                   disabled={fetcher.state !== "idle"}
                   className="primary-btn mt-4 w-full py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {fetcher.state !== "idle" ? "Placing order…" : "Place Order"}
                 </button>
-                {fetcher.data && !fetcher.data.ok && (
+                {"ok" in (fetcher.data ?? {}) && !(fetcher.data as { ok: boolean }).ok && (
                   <p className="text-xs text-red-600 mt-2 text-center">
-                    {"error" in fetcher.data ? fetcher.data.error : "Failed to place order"}
+                    {"error" in fetcher.data! ? (fetcher.data as { error: string }).error : "Failed to place order"}
                   </p>
                 )}
               </>
