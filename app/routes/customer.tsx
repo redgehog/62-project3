@@ -165,9 +165,15 @@ export async function action({ request }: Route.ActionArgs) {
     }
   }
 
-  const totalQty   = items.reduce((s, i) => s + i.qty, 0);
+  const totalQty    = items.reduce((s, i) => s + i.qty, 0);
   const subtotalRaw = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
-  const totalPrice = applyTax(subtotalRaw);
+  const totalPrice  = applyTax(subtotalRaw);
+
+  const redeem300Count = Math.max(0, parseInt(String(formData.get("redeem300") || "0"), 10));
+  const redeem100Count = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
+  const pointsRedeemed  = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
+  const redeemDiscount  = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
+  const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
 
   const client = await pool.connect();
   try {
@@ -176,7 +182,7 @@ export async function action({ request }: Route.ActionArgs) {
     const { rows } = await client.query(
       `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
        VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
-      [employeeId, customerId, totalPrice.toFixed(2), totalQty, formCustomerName, orderNumber]
+      [employeeId, customerId, discountedTotal.toFixed(2), totalQty, formCustomerName, orderNumber]
     );
     const orderId = rows[0].order_id;
 
@@ -198,8 +204,8 @@ export async function action({ request }: Route.ActionArgs) {
     );
     if (earnPoints) {
       await client.query(
-        `UPDATE "Customer" SET points = points + floor($1::numeric) WHERE customer_id = $2::uuid`,
-        [totalPrice.toFixed(2), customerId]
+        `UPDATE "Customer" SET points = points + floor($1::numeric * 5) - $2 WHERE customer_id = $3::uuid`,
+        [discountedTotal.toFixed(2), pointsRedeemed, customerId]
       );
     }
 
@@ -246,6 +252,8 @@ export default function Customer() {
   const [showCart, setShowCart]             = useState(false);
   const [customerPhone, setCustomerPhone]       = useState("");
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
+  const [redeem300, setRedeem300]               = useState(0);
+  const [redeem100, setRedeem100]               = useState(0);
 
   // Clear cart on successful order
   useEffect(() => {
@@ -254,6 +262,8 @@ export default function Customer() {
       setShowCart(false);
       setCustomerPhone("");
       setLookedUpCustomer(null);
+      setRedeem300(0);
+      setRedeem100(0);
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -389,8 +399,20 @@ export default function Customer() {
   const removeFromCart = (cartKey: string) =>
     setCart((prev) => prev.filter((c) => c.cartKey !== cartKey));
 
-  const totalItems = cart.reduce((s, c) => s + c.qty, 0);
-  const total      = cart.reduce((s, c) => s + c.price * c.qty, 0);
+  const totalItems      = cart.reduce((s, c) => s + c.qty, 0);
+  const total           = cart.reduce((s, c) => s + c.price * c.qty, 0);
+  const availablePoints = lookedUpCustomer && lookedUpCustomer !== "not-found" ? lookedUpCustomer.points : 0;
+  const pointsUsed      = redeem300 * 300 + redeem100 * 100;
+  const remainingPoints = availablePoints - pointsUsed;
+  const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
+  const adjustedTotal   = Math.max(0, total - redeemDiscount);
+
+  const applyAllPoints = () => {
+    const max300 = Math.floor(availablePoints / 300);
+    const max100 = Math.floor((availablePoints - max300 * 300) / 100);
+    setRedeem300(max300);
+    setRedeem100(max100);
+  };
 
   return (
     <div className="h-screen flex flex-col app-shell">
@@ -475,8 +497,42 @@ export default function Customer() {
                   ))}
                 </div>
                 <div className="mt-4 flex items-center justify-between font-bold text-slate-900 text-base">
-                  <span>Total</span><span>${total.toFixed(2)}</span>
+                  <span>Total</span><span>${adjustedTotal.toFixed(2)}</span>
                 </div>
+                {redeemDiscount > 0 && (
+                  <p className="text-xs text-emerald-600 text-right">-${redeemDiscount.toFixed(2)} points discount applied</p>
+                )}
+                {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
+                  <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-indigo-700">Redeem Points</span>
+                      <span className="text-xs text-indigo-500">{remainingPoints} pts left</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" onClick={() => setRedeem300(r => r + 1)}
+                        disabled={remainingPoints < 300}
+                        className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        300 pts → $4 off
+                      </button>
+                      <button type="button" onClick={() => setRedeem100(r => r + 1)}
+                        disabled={remainingPoints < 100}
+                        className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        100 pts → $1 off
+                      </button>
+                      <button type="button" onClick={applyAllPoints}
+                        className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100">
+                        Apply All
+                      </button>
+                    </div>
+                    {pointsUsed > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-indigo-600">{pointsUsed} pts → -${redeemDiscount.toFixed(2)} off</span>
+                        <button type="button" onClick={() => { setRedeem300(0); setRedeem100(0); }}
+                          className="text-xs text-slate-400 hover:text-red-500">Clear</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="mt-4 space-y-2">
                   <span className="block text-xs font-medium text-slate-600">Phone Number (optional — earn loyalty points)</span>
                   <div className="flex gap-2">
@@ -515,6 +571,8 @@ export default function Customer() {
                   onClick={() => {
                     const payload: Record<string, string> = {
                       cart: JSON.stringify(cart.map((i) => ({ id: i.id, basePrice: i.basePrice, qty: i.qty }))),
+                      redeem300: String(redeem300),
+                      redeem100: String(redeem100),
                     };
                     if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
                       payload.customerId    = lookedUpCustomer.id;

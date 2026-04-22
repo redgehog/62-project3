@@ -27,9 +27,17 @@ interface Employee {
   start_date: string;
 }
 
+interface CustomerRow {
+  id:          string;
+  name:        string;
+  phone:       string;
+  points:      number;
+  orderCount:  number;
+}
+
 export async function loader({ request, context }: Route.LoaderArgs) {
   await requireSignedIn({ request, context });
-  const [itemsResult, employeesResult] = await Promise.all([
+  const [itemsResult, employeesResult, customersResult] = await Promise.all([
     pool.query(
       `SELECT item_id::text AS id, name, category, price::float AS price,
               is_active AS "onMenu", COALESCE(is_seasonal, false) AS "isSeasonal",
@@ -40,10 +48,21 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       `SELECT employee_id::text AS id, name, start_date::text
        FROM "Employee" ORDER BY name`
     ),
+    pool.query(
+      `SELECT c.customer_id::text AS id, c.name, c.phone_number AS phone,
+              COALESCE(c.points, 0)::int AS points,
+              COUNT(o.order_id)::int AS "orderCount"
+       FROM "Customer" c
+       LEFT JOIN "Order" o ON o.customer_id = c.customer_id
+       WHERE c.phone_number IS NOT NULL AND c.phone_number <> ''
+       GROUP BY c.customer_id, c.name, c.phone_number, c.points
+       ORDER BY c.points DESC`
+    ),
   ]);
   return {
     inventory: itemsResult.rows as InventoryItem[],
     employees: employeesResult.rows as Employee[],
+    customers: customersResult.rows as CustomerRow[],
   };
 }
 
@@ -226,7 +245,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   return { ok: false };
 }
 
-const TABS = ["Inventory", "Menu", "Employees", "Reports"] as const;
+const TABS = ["Inventory", "Menu", "Employees", "Customers", "Reports"] as const;
 
 const inputCls = "field-input text-sm";
 
@@ -249,7 +268,7 @@ function SeasonalToggle({ value, onChange }: { value: boolean; onChange: (v: boo
 }
 
 export default function Manager() {
-  const { inventory, employees } = useLoaderData<typeof loader>();
+  const { inventory, employees, customers } = useLoaderData<typeof loader>();
   const navigate  = useNavigate();
   const fetcher   = useFetcher<typeof action>();
 
@@ -601,6 +620,39 @@ export default function Manager() {
                   {busy ? "Deleting…" : "Delete selected"}
                 </button>
               </div>
+            </section>
+          )}
+
+          {activeTab === "Customers" && (
+            <section aria-label="Loyalty customers">
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Loyalty Members</h2>
+              <p className="text-sm text-slate-500 mb-4">Customers who have provided a phone number. Sorted by points balance.</p>
+              {customers.length === 0 ? (
+                <p className="text-sm text-slate-400">No loyalty members yet.</p>
+              ) : (
+                <div className="section-card overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        <th className="px-4 py-3">Name</th>
+                        <th className="px-4 py-3">Phone</th>
+                        <th className="px-4 py-3 text-right">Points</th>
+                        <th className="px-4 py-3 text-right">Orders</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {customers.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-800">{c.name ?? "—"}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.phone}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-indigo-600">{c.points.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right text-slate-500">{c.orderCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           )}
 
