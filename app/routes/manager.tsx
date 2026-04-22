@@ -1,10 +1,9 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
 import { requireSignedIn } from "../clerk-auth.server";
 import { translateText } from "../translate";
-import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager — Boba House" }];
@@ -253,9 +252,7 @@ export default function Manager() {
   const navigate  = useNavigate();
   const fetcher   = useFetcher<typeof action>();
 
-  const translationContext = useContext(TranslationContext);
-  if (!translationContext) throw new Error("Manager must be rendered within TranslationContext");
-  const { language } = translationContext;
+  const language = "en";
 
   useEffect(() => {
     if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/manager");
