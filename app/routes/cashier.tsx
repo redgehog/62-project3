@@ -32,6 +32,8 @@ const TOPPINGS: Topping[] = [
   { id: 17, name: "Pudding",      price: 0.75 },
 ];
 
+const normalizePhone = (p: string) => p.replace(/\D/g, "");
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCashierAccess(request);
   const result = await pool.query(
@@ -78,7 +80,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "lookup-customer") {
     await requireCashierAccess(request);
-    const phone = String(formData.get("phone") || "").trim();
+    const phone = normalizePhone(String(formData.get("phone") || ""));
     if (!phone) return { ok: false as const, error: "Phone required" };
     const { rows } = await pool.query(
       `SELECT customer_id::text AS id, name, COALESCE(points, 0)::int AS points
@@ -102,7 +104,7 @@ export async function action({ request }: Route.ActionArgs) {
   const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
 
   const formCustomerId    = String(formData.get("customerId")    || "").trim();
-  const formCustomerPhone = String(formData.get("customerPhone") || "").trim();
+  const formCustomerPhone = normalizePhone(String(formData.get("customerPhone") || ""));
 
   const empRow = await (sessionEmployeeId
     ? pool.query(`SELECT employee_id FROM "Employee" WHERE employee_id = $1::uuid LIMIT 1`, [sessionEmployeeId])
@@ -111,8 +113,10 @@ export async function action({ request }: Route.ActionArgs) {
   if (!employeeId) return { ok: false, error: "No employee record found" };
 
   let customerId: string;
+  let earnPoints = false;
   if (formCustomerId) {
     customerId = formCustomerId;
+    earnPoints = true;
   } else if (formCustomerPhone) {
     const existing = await pool.query(
       `SELECT customer_id FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
@@ -128,6 +132,7 @@ export async function action({ request }: Route.ActionArgs) {
       );
       customerId = created.rows[0].customer_id;
     }
+    earnPoints = true;
   } else {
     const fallback = await pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`);
     customerId = fallback.rows[0]?.customer_id;
@@ -165,6 +170,13 @@ export async function action({ request }: Route.ActionArgs) {
        VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
       [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
     );
+    if (earnPoints) {
+      await client.query(
+        `UPDATE "Customer" SET points = points + floor($1::numeric) WHERE customer_id = $2::uuid`,
+        [totalPrice.toFixed(2), customerId]
+      );
+    }
+
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
