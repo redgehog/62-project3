@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
+import type { PoolClient } from "pg";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 import { applyTax, calcTax } from "../lib/pricing";
 
@@ -124,30 +125,59 @@ export async function action({ request }: Route.ActionArgs) {
   const subtotalRaw = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
   const totalPrice = applyTax(subtotalRaw);
 
-  const { rows } = await pool.query(
-    `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity)
-     VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4) RETURNING order_id`,
-    [employeeId, customerId, totalPrice.toFixed(2), totalQty]
-  );
-  const orderId = rows[0].order_id;
-
-  for (const [itemId, { price, qty }] of Object.entries(grouped)) {
-    await pool.query(
-      `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
-       VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
-      [orderId, itemId, qty, price.toFixed(2)]
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const orderNumber = await getNextOrderNumber(client);
+    const { rows } = await client.query(
+      `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
+       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, 'Kiosk Customer', $5) RETURNING order_id`,
+      [employeeId, customerId, totalPrice.toFixed(2), totalQty, orderNumber]
     );
+    const orderId = rows[0].order_id;
+
+    for (const [itemId, { price, qty }] of Object.entries(grouped)) {
+      await client.query(
+        `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
+         VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
+        [orderId, itemId, qty, price.toFixed(2)]
+      );
+    }
+
+    const subtotal = items.reduce((s, i) => s + i.basePrice * i.qty, 0);
+    const taxAmount = (totalPrice - subtotal).toFixed(2);
+    await client.query(
+      `INSERT INTO pos_sales_activity
+       (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
+       VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
+      [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 
-  const taxAmount = calcTax(subtotalRaw).toFixed(2);
-  await pool.query(
-    `INSERT INTO pos_sales_activity
-     (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
-     VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
-    [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
-  );
-
   return { ok: true };
+}
+
+async function getNextOrderNumber(client: PoolClient) {
+  await client.query("SELECT pg_advisory_xact_lock($1)", [62003]);
+  const { rows } = await client.query<{ next_order_number: number }>(
+    `SELECT CASE
+       WHEN COALESCE(last_order_number, 0) >= 100 THEN 1
+       ELSE COALESCE(last_order_number, 0) + 1
+     END AS next_order_number
+     FROM (
+       SELECT order_number AS last_order_number
+       FROM "Order"
+       ORDER BY date DESC, order_id DESC
+       LIMIT 1
+     ) latest`
+  );
+  return rows[0]?.next_order_number ?? 1;
 }
 
 export default function Customer() {

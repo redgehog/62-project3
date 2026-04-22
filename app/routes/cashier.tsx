@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
+import type { PoolClient } from "pg";
 import {
   destroyCashierSession,
   getCashierSession,
@@ -79,8 +80,10 @@ export async function action({ request }: Route.ActionArgs) {
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; price: number; qty: number;
   }>;
+  const customerName = String(formData.get("customerName") || "").trim();
 
   if (!items.length) return { ok: false };
+  if (!customerName) return { ok: false, error: "Customer name is required" };
 
   const session = await getCashierSession(request);
   const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
@@ -105,31 +108,62 @@ export async function action({ request }: Route.ActionArgs) {
   const totalPrice = applyTax(subtotal);
   const totalQty   = items.reduce((s, i) => s + i.qty, 0);
 
-  const { rows } = await pool.query(
-    `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity)
-     VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4) RETURNING order_id`,
-    [employeeId, customerId, totalPrice.toFixed(2), totalQty]
-  );
-  const orderId = rows[0].order_id;
-
-  for (const item of items) {
-    await pool.query(
-      `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
-       VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
-      [orderId, item.id, item.qty, item.price.toFixed(2)]
+  const client = await pool.connect();
+  let orderId: string;
+  try {
+    await client.query("BEGIN");
+    const orderNumber = await getNextOrderNumber(client);
+    const { rows } = await client.query(
+      `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
+       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
+      [employeeId, customerId, totalPrice.toFixed(2), totalQty, customerName, orderNumber]
     );
-  }
+    orderId = rows[0].order_id;
 
-  const taxAmount = calcTax(subtotal).toFixed(2);
-  await pool.query(
-    `INSERT INTO pos_sales_activity
-     (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
-     VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
-    [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
-  );
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
+         VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
+        [orderId, item.id, item.qty, item.price.toFixed(2)]
+      );
+    }
+
+    const taxAmount = (totalPrice - subtotal).toFixed(2);
+    await client.query(
+      `INSERT INTO pos_sales_activity
+       (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
+       VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
+      [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return { ok: true };
 }
+
+async function getNextOrderNumber(client: PoolClient) {
+  await client.query("SELECT pg_advisory_xact_lock($1)", [62003]);
+  const { rows } = await client.query<{ next_order_number: number }>(
+    `SELECT CASE
+       WHEN COALESCE(last_order_number, 0) >= 100 THEN 1
+       ELSE COALESCE(last_order_number, 0) + 1
+     END AS next_order_number
+     FROM (
+       SELECT order_number AS last_order_number
+       FROM "Order"
+       ORDER BY date DESC, order_id DESC
+       LIMIT 1
+     ) latest`
+  );
+  return rows[0]?.next_order_number ?? 1;
+}
+
+const TAX_RATE = 0.0825;
 
 interface CashierMenuItem {
   id:      string;
@@ -155,10 +189,11 @@ export default function Cashier() {
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
 
-  const [language, setLanguage] = useState<import("../translate").LanguageCode>("en");
+  const translationContext = useContext(TranslationContext);
+  const language = translationContext?.language ?? "en";
 
   useEffect(() => {
-    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");
+    if (!sessionStorage.getItem("loggedIn")) navigate("/cashier-login");
   }, []);
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [translatedCategories, setTranslatedCategories] = useState(categories);
@@ -190,11 +225,13 @@ export default function Cashier() {
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
+  const [customerName, setCustomerName]         = useState("");
 
   // Clear cart on successful order
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
       setOrderItems([]);
+      setCustomerName("");
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -239,8 +276,12 @@ export default function Cashier() {
 
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
+    if (!customerName.trim()) return;
     fetcher.submit(
-      { cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))) },
+      {
+        cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
+        customerName: customerName.trim(),
+      },
       { method: "post" }
     );
   };
@@ -353,6 +394,16 @@ export default function Cashier() {
           </div>
 
           <div className="px-4 py-4 border-t border-slate-200 space-y-2 text-sm">
+            <label className="block text-slate-600">
+              <span className="mb-1 block">Customer Name</span>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                placeholder="Enter customer name"
+              />
+            </label>
             <div className="flex justify-between text-slate-600">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
@@ -364,7 +415,7 @@ export default function Cashier() {
             </div>
             <button
               onClick={handleSubmit}
-              disabled={orderItems.length === 0 || submitting}
+              disabled={orderItems.length === 0 || submitting || !customerName.trim()}
               className="primary-btn w-full mt-2 py-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {submitting ? "Submitting…" : "Submit Order"}

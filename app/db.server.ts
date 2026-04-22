@@ -28,7 +28,11 @@ pool.query(`
 `).catch(console.error);
 
 pool.query(`
-  ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS allergens text[] NOT NULL DEFAULT '{}'
+  ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS customer_name text NOT NULL DEFAULT 'Walk-in Customer'
+`).catch(console.error);
+
+pool.query(`
+  ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS order_number int NOT NULL DEFAULT 1
 `).catch(console.error);
 
 pool.query(`
