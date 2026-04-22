@@ -254,12 +254,7 @@ export default function Manager() {
   const fetcher   = useFetcher<typeof action>();
 
   const translationContext = useContext(TranslationContext);
-  if (!translationContext) throw new Error("Manager must be rendered within TranslationContext");
-  const { language } = translationContext;
-
-  useEffect(() => {
-    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/manager");
-  }, []);
+  const language = translationContext?.language ?? "en";
 
   const [activeTab, setActiveTab]     = useState("Inventory");
   const [translatedUI, setTranslatedUI] = useState({ inventory: "Inventory", employees: "Employees" });

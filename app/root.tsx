@@ -6,14 +6,23 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { createContext, useState } from "react";
 import { ClerkProvider } from "@clerk/react-router";
 import { clerkMiddleware, rootAuthLoader } from "@clerk/react-router/server";
+import type { LanguageCode } from "./translate";
 
 import type { Route } from "./+types/root";
 import "./app.css";
 
 export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
 export const loader = (args: Route.LoaderArgs) => rootAuthLoader(args);
+
+type TranslationContextValue = {
+  language: LanguageCode;
+  setLanguage: (language: LanguageCode) => void;
+};
+
+export const TranslationContext = createContext<TranslationContextValue | null>(null);
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -47,9 +56,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
+  const [language, setLanguage] = useState<LanguageCode>("en");
+
   return (
     <ClerkProvider loaderData={loaderData}>
-      <Outlet />
+      <TranslationContext.Provider value={{ language, setLanguage }}>
+        <Outlet />
+      </TranslationContext.Provider>
     </ClerkProvider>
   );
 }

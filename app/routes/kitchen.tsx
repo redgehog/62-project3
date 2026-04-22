@@ -11,6 +11,8 @@ export function meta({}: Route.MetaArgs) {
 
 interface KitchenOrder {
   id:    string;
+  orderNumber: number;
+  customerName: string;
   date:  string;
   items: { name: string; qty: number }[];
 }
@@ -18,6 +20,8 @@ interface KitchenOrder {
 export async function loader() {
   const result = await pool.query(
     `SELECT o.order_id::text AS id,
+            o.order_number::int AS "orderNumber",
+            COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-in Customer') AS "customerName",
             to_char(o.date AT TIME ZONE 'America/Chicago', 'HH12:MI AM') AS date,
             json_agg(json_build_object('name', i.name, 'qty', oi.quantity) ORDER BY i.name) AS items
      FROM "Order" o
@@ -25,7 +29,7 @@ export async function loader() {
      JOIN "Item" i ON i.item_id = oi.item_id
      WHERE o.status = 'pending'
        AND o.date >= now() - interval '12 hours'
-     GROUP BY o.order_id, o.date
+     GROUP BY o.order_id, o.order_number, o.customer_name, o.date
      ORDER BY o.date ASC`
   );
   return { orders: result.rows as KitchenOrder[] };
@@ -67,10 +71,11 @@ function OrderCard({ order }: { order: KitchenOrder }) {
     <div className="section-card flex flex-col min-h-48">
       <div className="px-4 py-3 bg-slate-100/80 border-b border-slate-200 rounded-t-[0.875rem] flex items-center justify-between">
         <span className="text-sm font-bold text-slate-800">
-          Order #{order.id.slice(-6).toUpperCase()}
+          Order #{order.orderNumber}
         </span>
         <span className="text-xs text-slate-500">{order.date}</span>
       </div>
+      <p className="px-4 pt-3 text-xs font-medium text-slate-500">Customer: {order.customerName}</p>
       <ul className="flex-1 px-4 py-3 space-y-1.5" role="list">
         {order.items.map((item, i) => (
           <li key={i} className="text-sm text-slate-700 flex items-baseline gap-1.5">
@@ -100,8 +105,7 @@ export default function Kitchen() {
   const { orders } = useLoaderData<typeof loader>();
 
   const translationContext = useContext(TranslationContext);
-  if (!translationContext) throw new Error("Kitchen must be rendered within TranslationContext");
-  const { language } = translationContext;
+  const language = translationContext?.language ?? "en";
 
   const [translatedUI, setTranslatedUI] = useState({
     activeQueue: "Active Queue",
@@ -126,10 +130,6 @@ export default function Kitchen() {
       setTranslatedUI({ activeQueue, trackPending, noPending });
     });
   }, [language]);
-
-  useEffect(() => {
-    if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/kitchen");
-  }, []);
 
   return (
     <div className="h-screen flex flex-col app-shell">
