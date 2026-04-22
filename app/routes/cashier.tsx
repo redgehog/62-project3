@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
@@ -163,8 +163,6 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
-const TAX_RATE = 0.0825;
-
 interface CashierMenuItem {
   id:      string;
   name:    string;
@@ -201,6 +199,10 @@ export default function Cashier() {
   const [translatedIceLevels, setTranslatedIceLevels] = useState(ICE_LEVELS);
   const [translatedToppings, setTranslatedToppings] = useState(TOPPINGS);
   const [translatedUI, setTranslatedUI] = useState({ menu: "Menu", select: "Select items to build the current order." });
+  const translatedCategoryByName = categories.reduce<Record<string, string>>((acc, category, index) => {
+    acc[category] = translatedCategories[index] ?? category;
+    return acc;
+  }, {});
 
   useEffect(() => {
     if (language === "en") {
@@ -220,6 +222,7 @@ export default function Cashier() {
       translateText("Select items to build the current order.", { to: language })
     ]).then(([menu, select]) => setTranslatedUI({ menu, select }));
   }, [language, categories]);
+
   const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
   const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
   const [milkLevel, setMilkLevel]               = useState("Whole Milk");
@@ -234,6 +237,15 @@ export default function Cashier() {
       setCustomerName("");
     }
   }, [fetcher.state, fetcher.data]);
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedItem]);
 
   const openItem = (item: CashierMenuItem) => {
     setSelectedItem(item);
@@ -314,7 +326,7 @@ export default function Cashier() {
                 : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
           >
-            {cat === "Seasonal" ? "🍂 Seasonal" : cat}
+            {cat === "Seasonal" ? "🍂 Seasonal" : translatedCategoryByName[cat]}
           </button>
         ))}
       </nav>
@@ -455,18 +467,19 @@ export default function Cashier() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Ice Level</p>
               <div className="grid grid-cols-4 gap-2">
-                {ICE_LEVELS.map((level) => (
+                {ICE_LEVELS.map((level, index) => (
                   <button
                     key={level}
                     type="button"
                     onClick={() => setIceLevel(level)}
+                    aria-pressed={iceLevel === level}
                     className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                       ${iceLevel === level
                         ? "bg-indigo-600 border-indigo-600 text-white"
                         : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                       }`}
                   >
-                    {level}
+                    {translatedIceLevels[index] ?? level}
                   </button>
                 ))}
               </div>
@@ -477,18 +490,19 @@ export default function Cashier() {
               <div className="mb-5">
                 <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {MILK_TYPES.map((level) => (
+                  {MILK_TYPES.map((level, index) => (
                     <button
                       key={level}
                       type="button"
                       onClick={() => setMilkLevel(level)}
+                      aria-pressed={milkLevel === level}
                       className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${milkLevel === level
                           ? "bg-indigo-600 border-indigo-600 text-white"
                           : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                         }`}
                     >
-                      {level}
+                      {translatedMilkTypes[index] ?? level}
                     </button>
                   ))}
                 </div>
@@ -499,18 +513,19 @@ export default function Cashier() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
               <div className="grid grid-cols-2 gap-2">
-                {TOPPINGS.map((topping) => (
+                {TOPPINGS.map((topping, index) => (
                   <button
                     key={topping.id}
                     type="button"
                     onClick={() => toggleTopping(topping.id)}
+                    aria-pressed={selectedToppings.includes(topping.id)}
                     className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                       ${selectedToppings.includes(topping.id)
                         ? "bg-indigo-600 border-indigo-600 text-white"
                         : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
                       }`}
                   >
-                    {topping.name}
+                    {translatedToppings[index]?.name ?? topping.name}
                   </button>
                 ))}
               </div>

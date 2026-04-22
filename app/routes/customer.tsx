@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
 import type { PoolClient } from "pg";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 import { applyTax, calcTax } from "../lib/pricing";
+import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Order — Boba House" }];
@@ -60,8 +61,7 @@ interface CartItem {
 export async function loader() {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price, milk,
-            COALESCE(is_seasonal, false) AS "isSeasonal",
-            COALESCE(allergens, '{}') AS allergens
+            COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -79,7 +79,7 @@ export async function loader() {
       id:        row.id,
       name:      row.name,
       price:     Number(row.price),
-      allergens: row.allergens as string[],
+      allergens: [],
       hasMilk:   !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
     };
     menuItems[row.category].push(item);
@@ -184,6 +184,9 @@ export default function Customer() {
   const navigate = useNavigate();
   const { categories, menuItems } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
+  const translationContext = useContext(TranslationContext);
+  const language = translationContext?.language ?? "en";
+  const setLanguage = translationContext?.setLanguage ?? (() => {});
 
   const [activeCategory, setActiveCategory] = useState(0); // index of category
   const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
@@ -215,7 +218,6 @@ export default function Customer() {
     return () => clearInterval(id);
   }, []);
 
-  const [language, setLanguage] = useState<LanguageCode>('en');
   const [translatedCategories, setTranslatedCategories] = useState(categories);
   const [translatedMenuItems, setTranslatedMenuItems] = useState(menuItems);
   const [translatedMilkTypes, setTranslatedMilkTypes] = useState(MILK_TYPES);
@@ -269,6 +271,15 @@ export default function Customer() {
     Promise.all(TOPPINGS.map(async t => ({ ...t, name: await translateText(t.name, { to: language }) })))
       .then(setTranslatedToppings);
   }, [language, categories, menuItems]);
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedItem]);
 
   const openItem = (item: MenuItem) => {
     setSelectedItem(item);
@@ -338,6 +349,7 @@ export default function Customer() {
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+            aria-label="Select language"
             className="ml-4 px-2 py-1 text-sm bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             {Object.entries(MAJOR_LANGUAGES).map(([name, code]) => (
@@ -578,6 +590,7 @@ export default function Customer() {
                   <button
                     key={level}
                     onClick={() => setIceLevel(level)}
+                    aria-pressed={iceLevel === level}
                     className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                       ${iceLevel === level
                         ? "bg-indigo-600 border-indigo-600 text-white"
@@ -599,6 +612,7 @@ export default function Customer() {
                     <button
                       key={level}
                       onClick={() => setMilkLevel(level)}
+                      aria-pressed={milkLevel === level}
                       className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${milkLevel === level
                           ? "bg-indigo-600 border-indigo-600 text-white"
@@ -622,6 +636,7 @@ export default function Customer() {
                     <button
                       key={topping.id}
                       onClick={() => toggleTopping(topping.id)}
+                      aria-pressed={selectedToppings.includes(topping.id)}
                       className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${selectedToppings.includes(topping.id)
                           ? "bg-indigo-600 border-indigo-600 text-white"

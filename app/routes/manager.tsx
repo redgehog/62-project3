@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
 import { requireSignedIn } from "../clerk-auth.server";
 import { translateText } from "../translate";
+import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Manager — Boba House" }];
