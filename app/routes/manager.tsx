@@ -236,6 +236,17 @@ export async function action({ request, context }: Route.ActionArgs) {
     return { ok: true };
   }
 
+  if (intent === "edit-customer") {
+    const id    = formData.get("id")    as string;
+    const name  = formData.get("name")  as string;
+    const phone = (formData.get("phone") as string).replace(/\D/g, "");
+    await pool.query(
+      `UPDATE "Customer" SET name = $1, phone_number = $2 WHERE customer_id = $3::uuid`,
+      [name, phone, id]
+    );
+    return { ok: true };
+  }
+
   if (intent === "delete-employee") {
     const id = formData.get("id") as string;
     await pool.query(`DELETE FROM "Employee" WHERE employee_id = $1::uuid`, [id]);
@@ -302,6 +313,8 @@ export default function Manager() {
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [showAddEmployee, setShowAddEmployee]   = useState(false);
   const [editEmployee, setEditEmployee]         = useState<Employee | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [editCustomer, setEditCustomer]         = useState<CustomerRow | null>(null);
 
   // Close modals after add/edit; update report text when returned
   useEffect(() => {
@@ -642,7 +655,15 @@ export default function Manager() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {customers.map((c) => (
-                        <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                        <tr
+                          key={c.id}
+                          onClick={() => setSelectedCustomer(selectedCustomer === c.id ? null : c.id)}
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === "Enter" && setSelectedCustomer(selectedCustomer === c.id ? null : c.id)}
+                          aria-selected={selectedCustomer === c.id}
+                          className={`cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
+                            ${selectedCustomer === c.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                        >
                           <td className="px-4 py-3 font-medium text-slate-800">{c.name ?? "—"}</td>
                           <td className="px-4 py-3 text-slate-500">{c.phone}</td>
                           <td className="px-4 py-3 text-right font-semibold text-indigo-600">{c.points.toLocaleString()}</td>
@@ -653,6 +674,18 @@ export default function Manager() {
                   </table>
                 </div>
               )}
+              <div className="mt-3">
+                <button
+                  onClick={() => {
+                    const c = customers.find((c) => c.id === selectedCustomer);
+                    if (c) setEditCustomer(c);
+                  }}
+                  disabled={!selectedCustomer}
+                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Edit selected
+                </button>
+              </div>
             </section>
           )}
 
@@ -801,6 +834,40 @@ export default function Manager() {
                 </button>
                 <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Adding…" : "Add Employee"}
+                </button>
+              </div>
+            </fetcher.Form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Customer Modal */}
+      {editCustomer && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditCustomer(null); }}
+        >
+          <div className="surface-card w-full max-w-sm p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Customer</h2>
+            <fetcher.Form method="post" className="flex flex-col gap-4">
+              <input type="hidden" name="intent" value="edit-customer" />
+              <input type="hidden" name="id" value={editCustomer.id} />
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input name="name" defaultValue={editCustomer.name ?? ""} required className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                <input name="phone" type="tel" defaultValue={editCustomer.phone} required className={inputCls} />
+              </div>
+              <div className="flex gap-3 mt-2">
+                <button type="button" onClick={() => setEditCustomer(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                  {busy ? "Saving…" : "Save Changes"}
                 </button>
               </div>
             </fetcher.Form>
