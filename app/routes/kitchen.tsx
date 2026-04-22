@@ -1,9 +1,8 @@
-import { useEffect, useContext, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/kitchen";
 import pool from "../db.server";
 import { translateText } from "../translate";
-import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Kitchen — Boba House" }];

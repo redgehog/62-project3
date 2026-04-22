@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
@@ -10,6 +10,7 @@ import {
 } from "../cashier-access.server";
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
+import { applyTax, calcTax, TAX_RATE } from "../lib/pricing";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -104,7 +105,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
 
   const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const totalPrice = subtotal * (1 + 0.0825);
+  const totalPrice = applyTax(subtotal);
   const totalQty   = items.reduce((s, i) => s + i.qty, 0);
 
   const client = await pool.connect();
