@@ -13,12 +13,14 @@ const MILK_TYPES = ["Whole Milk", "Oat Milk", "Almond Milk", "Soy Milk", "No Mil
 const ICE_LEVELS  = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
 
 const ALLERGEN_ICONS: Record<string, string> = {
-  dairy:      "🥛",
-  soy:        "🫘",
-  "tree-nuts":"🌰",
-  gluten:     "🌾",
-  eggs:       "🥚",
+  dairy:       "🥛",
+  soy:         "🫘",
+  "tree-nuts": "🌰",
+  gluten:      "🌾",
+  eggs:        "🥚",
 };
+
+const ALL_ALLERGENS = ["dairy", "soy", "tree-nuts", "gluten", "eggs"] as const;
 
 interface MenuItem {
   id:        string;
@@ -57,7 +59,8 @@ interface CartItem {
 export async function loader() {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price, milk,
-            COALESCE(is_seasonal, false) AS "isSeasonal"
+            COALESCE(is_seasonal, false) AS "isSeasonal",
+            COALESCE(allergens, '{}') AS allergens
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -75,7 +78,7 @@ export async function loader() {
       id:        row.id,
       name:      row.name,
       price:     Number(row.price),
-      allergens: [],
+      allergens: row.allergens as string[],
       hasMilk:   !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
     };
     menuItems[row.category].push(item);
@@ -153,6 +156,7 @@ export default function Customer() {
   const fetcher = useFetcher<typeof action>();
 
   const [activeCategory, setActiveCategory] = useState(0); // index of category
+  const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [showCart, setShowCart]             = useState(false);
 
@@ -397,6 +401,45 @@ export default function Customer() {
               </button>
             </div>
 
+            {/* Allergen filter */}
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs font-semibold text-amber-800 mb-2">Filter out allergens — tap to hide items containing:</p>
+              <div className="flex flex-wrap gap-2">
+                {ALL_ALLERGENS.map((allergen) => {
+                  const blocked = blockedAllergens.includes(allergen);
+                  return (
+                    <button
+                      key={allergen}
+                      onClick={() => setBlockedAllergens((prev) =>
+                        blocked ? prev.filter((a) => a !== allergen) : [...prev, allergen]
+                      )}
+                      aria-pressed={blocked}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500
+                        ${blocked
+                          ? "bg-amber-600 border-amber-600 text-white"
+                          : "bg-white border-amber-300 text-amber-800 hover:bg-amber-100"
+                        }`}
+                    >
+                      {ALLERGEN_ICONS[allergen]} {allergen.replace("-", " ")}
+                    </button>
+                  );
+                })}
+                {blockedAllergens.length > 0 && (
+                  <button
+                    onClick={() => setBlockedAllergens([])}
+                    className="px-3 py-1 rounded-full text-xs font-semibold border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+              {blockedAllergens.length > 0 && (
+                <p className="text-xs text-amber-700 mt-2">
+                  Hiding items containing: {blockedAllergens.map((a) => a.replace("-", " ")).join(", ")}
+                </p>
+              )}
+            </div>
+
             <div className="mb-5">
               <div
                 className="grid gap-2 w-full"
@@ -428,24 +471,30 @@ export default function Customer() {
             </div>
 
             <div className="grid grid-cols-4 gap-3">
-                {items.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => openItem(item)}
-                    className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
-                  >
-                    <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
-                    {item.allergens.length > 0 && (
-                      <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
-                        {item.allergens.map((a) => ALLERGEN_ICONS[a]).join(" ")}
-                      </p>
-                    )}
-                  </button>
-                ))}
+                {items
+                  .filter((item) => !item.allergens.some((a) => blockedAllergens.includes(a)))
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => openItem(item)}
+                      className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                      <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                      {item.allergens.length > 0 && (
+                        <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
+                          {item.allergens.map((a) => ALLERGEN_ICONS[a]).join(" ")}
+                        </p>
+                      )}
+                    </button>
+                  ))}
               </div>
-              {items.length === 0 && (
-              <p className="text-sm text-slate-500 py-8 text-center">No items available in this category right now.</p>
+              {items.filter((item) => !item.allergens.some((a) => blockedAllergens.includes(a))).length === 0 && (
+              <p className="text-sm text-slate-500 py-8 text-center">
+                {items.length === 0
+                  ? "No items available in this category right now."
+                  : "All items in this category contain your filtered allergens."}
+              </p>
             )}
           </div>
         )}
@@ -537,22 +586,28 @@ export default function Customer() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
               <div className="grid grid-cols-2 gap-2">
-                {translatedToppings.map((topping) => (
-                  <button
-                    key={topping.id}
-                    onClick={() => toggleTopping(topping.id)}
-                    className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                      ${selectedToppings.includes(topping.id)
-                        ? "bg-indigo-600 border-indigo-600 text-white"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
-                      }`}
-                  >
-                    {topping.name}
-                    {topping.allergens.length > 0 && (
-                      <span className="ml-1">{topping.allergens.map((a) => ALLERGEN_ICONS[a]).join("")}</span>
-                    )}
-                  </button>
-                ))}
+                {translatedToppings.map((topping) => {
+                  const hasBlocked = topping.allergens.some((a) => blockedAllergens.includes(a));
+                  return (
+                    <button
+                      key={topping.id}
+                      onClick={() => toggleTopping(topping.id)}
+                      className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                        ${selectedToppings.includes(topping.id)
+                          ? "bg-indigo-600 border-indigo-600 text-white"
+                          : hasBlocked
+                          ? "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
+                        }`}
+                    >
+                      <span>{topping.name}</span>
+                      {topping.allergens.length > 0 && (
+                        <span className="ml-1">{topping.allergens.map((a) => ALLERGEN_ICONS[a]).join("")}</span>
+                      )}
+                      {hasBlocked && <span className="block text-amber-600 font-normal" style={{fontSize:"10px"}}>contains your allergen</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

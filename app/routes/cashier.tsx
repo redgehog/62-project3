@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
@@ -155,9 +155,7 @@ export default function Cashier() {
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
 
-  const translationContext = useContext(TranslationContext);
-  if (!translationContext) throw new Error("Cashier must be rendered within TranslationContext");
-  const { language } = translationContext;
+  const [language, setLanguage] = useState<import("../translate").LanguageCode>("en");
 
   useEffect(() => {
     if (!sessionStorage.getItem("loggedIn")) navigate("/login?redirect=/cashier");

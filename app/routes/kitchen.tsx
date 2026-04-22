@@ -1,9 +1,8 @@
-import { useEffect, useContext, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/kitchen";
 import pool from "../db.server";
 import { translateText } from "../translate";
-import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Kitchen — Boba House" }];
@@ -99,9 +98,7 @@ export default function Kitchen() {
   const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
 
-  const translationContext = useContext(TranslationContext);
-  if (!translationContext) throw new Error("Kitchen must be rendered within TranslationContext");
-  const { language } = translationContext;
+  const [language, setLanguage] = useState<import("../translate").LanguageCode>("en");
 
   const [translatedUI, setTranslatedUI] = useState({
     activeQueue: "Active Queue",
