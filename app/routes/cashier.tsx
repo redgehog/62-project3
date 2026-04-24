@@ -32,6 +32,8 @@ const TOPPINGS: Topping[] = [
   { id: 17, name: "Pudding",      price: 0.75 },
 ];
 
+const normalizePhone = (p: string) => p.replace(/\D/g, "");
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCashierAccess(request);
   const result = await pool.query(
@@ -76,6 +78,19 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
+  if (intent === "lookup-customer") {
+    await requireCashierAccess(request);
+    const phone = normalizePhone(String(formData.get("phone") || ""));
+    if (!phone) return { ok: false as const, error: "Phone required" };
+    const { rows } = await pool.query(
+      `SELECT customer_id::text AS id, name, COALESCE(points, 0)::int AS points
+       FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [phone]
+    );
+    if (rows.length === 0) return { notFound: true as const };
+    return { customer: rows[0] as { id: string; name: string; points: number } };
+  }
+
   await requireCashierAccess(request);
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; price: number; qty: number;
@@ -88,25 +103,51 @@ export async function action({ request }: Route.ActionArgs) {
   const session = await getCashierSession(request);
   const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
 
-  const [empRow, custRow] = await Promise.all([
-    sessionEmployeeId
-      ? pool.query(
-          `SELECT employee_id
-           FROM "Employee"
-           WHERE employee_id = $1::uuid
-           LIMIT 1`,
-          [sessionEmployeeId]
-        )
-      : pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`),
-    pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`),
-  ]);
+  const formCustomerId    = String(formData.get("customerId")    || "").trim();
+  const formCustomerPhone = normalizePhone(String(formData.get("customerPhone") || ""));
+
+  const empRow = await (sessionEmployeeId
+    ? pool.query(`SELECT employee_id FROM "Employee" WHERE employee_id = $1::uuid LIMIT 1`, [sessionEmployeeId])
+    : pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`));
   const employeeId = empRow.rows[0]?.employee_id;
-  const customerId = custRow.rows[0]?.customer_id;
-  if (!employeeId || !customerId) return { ok: false, error: "No employee or customer record found" };
+  if (!employeeId) return { ok: false, error: "No employee record found" };
+
+  let customerId: string;
+  let earnPoints = false;
+  if (formCustomerId) {
+    customerId = formCustomerId;
+    earnPoints = true;
+  } else if (formCustomerPhone) {
+    const existing = await pool.query(
+      `SELECT customer_id FROM "Customer" WHERE phone_number = $1 LIMIT 1`,
+      [formCustomerPhone]
+    );
+    if (existing.rows.length > 0) {
+      customerId = existing.rows[0].customer_id;
+    } else {
+      const created = await pool.query(
+        `INSERT INTO "Customer" (customer_id, name, phone_number, points)
+         VALUES (gen_random_uuid(), $1, $2, 0) RETURNING customer_id`,
+        [customerName, formCustomerPhone]
+      );
+      customerId = created.rows[0].customer_id;
+    }
+    earnPoints = true;
+  } else {
+    const fallback = await pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`);
+    customerId = fallback.rows[0]?.customer_id;
+    if (!customerId) return { ok: false, error: "No customer record found" };
+  }
 
   const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
   const totalPrice = applyTax(subtotal);
   const totalQty   = items.reduce((s, i) => s + i.qty, 0);
+
+  const redeem300Count = Math.max(0, parseInt(String(formData.get("redeem300") || "0"), 10));
+  const redeem100Count = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
+  const pointsRedeemed = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
+  const redeemDiscount = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
+  const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
 
   const client = await pool.connect();
   let orderId: string;
@@ -116,7 +157,7 @@ export async function action({ request }: Route.ActionArgs) {
     const { rows } = await client.query(
       `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
        VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
-      [employeeId, customerId, totalPrice.toFixed(2), totalQty, customerName, orderNumber]
+      [employeeId, customerId, discountedTotal.toFixed(2), totalQty, customerName, orderNumber]
     );
     orderId = rows[0].order_id;
 
@@ -135,6 +176,13 @@ export async function action({ request }: Route.ActionArgs) {
        VALUES (gen_random_uuid(), CURRENT_DATE, now(), 'SALE', $1, $2, $3, 'Cash', $4)`,
       [orderId, totalPrice.toFixed(2), taxAmount, totalQty]
     );
+    if (earnPoints) {
+      await client.query(
+        `UPDATE "Customer" SET points = points + floor($1::numeric * 5) - $2 WHERE customer_id = $3::uuid`,
+        [discountedTotal.toFixed(2), pointsRedeemed, customerId]
+      );
+    }
+
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -163,6 +211,7 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
+
 interface CashierMenuItem {
   id:      string;
   name:    string;
@@ -185,7 +234,8 @@ interface OrderItem {
 export default function Cashier() {
   const navigate = useNavigate();
   const { categories, byCategory } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const fetcher       = useFetcher<typeof action>();
+  const lookupFetcher = useFetcher<typeof action>();
 
   const translationContext = useContext(TranslationContext);
   const language = translationContext?.language ?? "en";
@@ -229,15 +279,35 @@ export default function Cashier() {
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [customerName, setCustomerName]         = useState("");
+  const [customerPhone, setCustomerPhone]       = useState("");
+  const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
+  const [redeem300, setRedeem300]               = useState(0);
+  const [redeem100, setRedeem100]               = useState(0);
 
   // Clear cart on successful order
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
+    if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
       setOrderItems([]);
       setCustomerName("");
+      setCustomerPhone("");
+      setLookedUpCustomer(null);
+      setRedeem300(0);
+      setRedeem100(0);
     }
   }, [fetcher.state, fetcher.data]);
 
+  // Handle customer phone lookup result
+  useEffect(() => {
+    const data = lookupFetcher.data;
+    if (!data || lookupFetcher.state !== "idle") return;
+    if ("customer" in data) {
+      const c = data.customer as { id: string; name: string; points: number };
+      setLookedUpCustomer(c);
+      setCustomerName(c.name);
+    } else if ("notFound" in data) {
+      setLookedUpCustomer("not-found");
+    }
+  }, [lookupFetcher.state, lookupFetcher.data]);
   useEffect(() => {
     if (!selectedItem) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -281,21 +351,46 @@ export default function Cashier() {
 
   const removeItem = (cartKey: string) => setOrderItems((prev) => prev.filter((o) => o.cartKey !== cartKey));
 
-  const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-  const tax      = subtotal * TAX_RATE;
-  const total    = subtotal + tax;
-  const submitting = fetcher.state !== "idle";
+  const subtotal        = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const tax             = subtotal * TAX_RATE;
+  const total           = subtotal + tax;
+  const availablePoints = lookedUpCustomer && lookedUpCustomer !== "not-found" ? lookedUpCustomer.points : 0;
+  const pointsUsed      = redeem300 * 300 + redeem100 * 100;
+  const remainingPoints = availablePoints - pointsUsed;
+  const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
+  const adjustedTotal   = Math.max(0, total - redeemDiscount);
+  const submitting      = fetcher.state !== "idle";
+
+  const applyAllPoints = () => {
+    const max300 = Math.floor(availablePoints / 300);
+    const max100 = Math.floor((availablePoints - max300 * 300) / 100);
+    setRedeem300(max300);
+    setRedeem100(max100);
+  };
+
+  const handleLookup = () => {
+    if (!customerPhone.trim()) return;
+    lookupFetcher.submit(
+      { intent: "lookup-customer", phone: customerPhone.trim() },
+      { method: "post" }
+    );
+  };
 
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
     if (!customerName.trim()) return;
-    fetcher.submit(
-      {
-        cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
-        customerName: customerName.trim(),
-      },
-      { method: "post" }
-    );
+    const payload: Record<string, string> = {
+      cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
+      customerName: customerName.trim(),
+      redeem300: String(redeem300),
+      redeem100: String(redeem100),
+    };
+    if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
+      payload.customerId = lookedUpCustomer.id;
+    } else if (customerPhone.trim()) {
+      payload.customerPhone = customerPhone.trim();
+    }
+    fetcher.submit(payload, { method: "post" });
   };
 
   const items = byCategory[activeCategory] ?? [];
@@ -406,8 +501,38 @@ export default function Cashier() {
           </div>
 
           <div className="px-4 py-4 border-t border-slate-200 space-y-2 text-sm">
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-slate-600">Phone Number</span>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
+                  placeholder="555-867-5309"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleLookup}
+                  disabled={!customerPhone.trim() || lookupFetcher.state !== "idle"}
+                  className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {lookupFetcher.state !== "idle" ? "…" : "Look up"}
+                </button>
+              </div>
+              {lookedUpCustomer === "not-found" && (
+                <p className="text-xs text-amber-600">No member found — enter a name below to create one.</p>
+              )}
+              {lookedUpCustomer && lookedUpCustomer !== "not-found" && (
+                <p className="text-xs text-emerald-600 font-medium">
+                  Found: {lookedUpCustomer.name} · {lookedUpCustomer.points} pts
+                </p>
+              )}
+            </div>
             <label className="block text-slate-600">
-              <span className="mb-1 block">Customer Name</span>
+              <span className="mb-1 block text-xs font-medium">
+                {lookedUpCustomer === "not-found" ? "Customer Name (new member)" : "Customer Name"}
+              </span>
               <input
                 type="text"
                 value={customerName}
@@ -416,14 +541,51 @@ export default function Cashier() {
                 placeholder="Enter customer name"
               />
             </label>
+            {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-indigo-700">Redeem Points</span>
+                  <span className="text-xs text-indigo-500">{remainingPoints} pts left</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button type="button" onClick={() => setRedeem300(r => r + 1)}
+                    disabled={remainingPoints < 300}
+                    className="text-xs px-2 py-1 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                    300 pts → $4 off
+                  </button>
+                  <button type="button" onClick={() => setRedeem100(r => r + 1)}
+                    disabled={remainingPoints < 100}
+                    className="text-xs px-2 py-1 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                    100 pts → $1 off
+                  </button>
+                  <button type="button" onClick={applyAllPoints}
+                    disabled={availablePoints < 100}
+                    className="text-xs px-2 py-1 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Apply All
+                  </button>
+                </div>
+                {pointsUsed > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-indigo-600">{pointsUsed} pts → -${redeemDiscount.toFixed(2)} off</span>
+                    <button type="button" onClick={() => { setRedeem300(0); setRedeem100(0); }}
+                      className="text-xs text-slate-400 hover:text-red-500">Clear</button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex justify-between text-slate-600">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>Tax (8.25%)</span><span>${tax.toFixed(2)}</span>
             </div>
+            {redeemDiscount > 0 && (
+              <div className="flex justify-between text-emerald-600 text-xs">
+                <span>Points discount</span><span>-${redeemDiscount.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
-              <span>Total</span><span>${total.toFixed(2)}</span>
+              <span>Total</span><span>${adjustedTotal.toFixed(2)}</span>
             </div>
             <button
               onClick={handleSubmit}
@@ -432,9 +594,9 @@ export default function Cashier() {
             >
               {submitting ? "Submitting…" : "Submit Order"}
             </button>
-            {fetcher.data && !fetcher.data.ok && (
+            {"ok" in (fetcher.data ?? {}) && !(fetcher.data as { ok: boolean }).ok && (
               <p className="text-xs text-red-600 mt-1 text-center">
-                {"error" in fetcher.data ? fetcher.data.error : "Failed to submit order"}
+                {"error" in fetcher.data! ? (fetcher.data as { error: string }).error : "Failed to submit order"}
               </p>
             )}
           </div>
