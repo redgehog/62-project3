@@ -10,14 +10,22 @@ import {
 } from "../cashier-access.server";
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
-import { applyTax, calcTax, TAX_RATE } from "../lib/pricing";
+import { applyTax, TAX_RATE } from "../lib/pricing";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
 }
 
-const MILK_TYPES = ["Whole Milk", "Oat Milk", "Almond Milk", "Soy Milk", "No Milk"];
-const ICE_LEVELS  = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
+const MILK_TYPES       = ["Whole Milk", "Oat Milk", "Almond Milk", "Soy Milk", "No Milk"];
+const ICE_LEVELS       = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
+const SWEETNESS_OPTIONS = [25, 50, 75, 100, 125];
+
+const SIZES = [
+  { value: "Regular" as const, oz: "16oz", upcharge: 0.00 },
+  { value: "Large"   as const, oz: "24oz", upcharge: 1.25 },
+];
+
+type SizeValue = "Regular" | "Large";
 
 interface Topping {
   id:    number;
@@ -38,14 +46,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireCashierAccess(request);
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price,
-            COALESCE(is_seasonal, false) AS "isSeasonal", milk
+            COALESCE(is_seasonal, false) AS "isSeasonal", milk,
+            COALESCE(has_temperature, false) AS "hasTemperature"
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
   );
 
-  const rows = result.rows as { id: string; name: string; category: string; price: number; isSeasonal: boolean; milk: string }[];
-  const byCategory: Record<string, { id: string; name: string; price: number; hasMilk: boolean }[]> = {};
+  const rows = result.rows as {
+    id: string; name: string; category: string; price: number;
+    isSeasonal: boolean; milk: string; hasTemperature: boolean;
+  }[];
+  const byCategory: Record<string, { id: string; name: string; price: number; hasMilk: boolean; hasTemperature: boolean }[]> = {};
   const categories: string[] = [];
 
   for (const row of rows) {
@@ -53,7 +65,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       byCategory[row.category] = [];
       categories.push(row.category);
     }
-    const item = { id: row.id, name: row.name, price: row.price, hasMilk: !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "" };
+    const item = {
+      id: row.id, name: row.name, price: row.price,
+      hasMilk: !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
+      hasTemperature: row.hasTemperature,
+    };
     byCategory[row.category].push(item);
     if (row.isSeasonal) {
       if (!byCategory["Seasonal"]) {
@@ -94,6 +110,8 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCashierAccess(request);
   const items = JSON.parse(formData.get("cart") as string) as Array<{
     id: string; price: number; qty: number;
+    size: string; iceLevel: string; milkType: string;
+    toppingNames: string[]; temperature: string | null; sweetness: number | null;
   }>;
   const customerName = String(formData.get("customerName") || "").trim();
 
@@ -139,14 +157,14 @@ export async function action({ request }: Route.ActionArgs) {
     if (!customerId) return { ok: false, error: "No customer record found" };
   }
 
-  const subtotal   = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const totalPrice = applyTax(subtotal);
-  const totalQty   = items.reduce((s, i) => s + i.qty, 0);
+  const subtotal    = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const totalPrice  = applyTax(subtotal);
+  const totalQty    = items.reduce((s, i) => s + i.qty, 0);
 
-  const redeem300Count = Math.max(0, parseInt(String(formData.get("redeem300") || "0"), 10));
-  const redeem100Count = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
-  const pointsRedeemed = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
-  const redeemDiscount = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
+  const redeem300Count  = Math.max(0, parseInt(String(formData.get("redeem300") || "0"), 10));
+  const redeem100Count  = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
+  const pointsRedeemed  = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
+  const redeemDiscount  = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
   const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
 
   const client = await pool.connect();
@@ -163,9 +181,11 @@ export async function action({ request }: Route.ActionArgs) {
 
     for (const item of items) {
       await client.query(
-        `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
-         VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
-        [orderId, item.id, item.qty, item.price.toFixed(2)]
+        `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price, size, ice_level, milk_type, toppings, temperature, sweetness)
+         VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [orderId, item.id, item.qty, item.price.toFixed(2),
+         item.size, item.iceLevel, item.milkType,
+         item.toppingNames, item.temperature || null, item.sweetness || null]
       );
     }
 
@@ -211,24 +231,27 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
-
 interface CashierMenuItem {
-  id:      string;
-  name:    string;
-  price:   number;
-  hasMilk: boolean;
+  id:             string;
+  name:           string;
+  price:          number;
+  hasMilk:        boolean;
+  hasTemperature: boolean;
 }
 
 interface OrderItem {
-  cartKey:   string;
-  id:        string;
-  name:      string;
-  basePrice: number;
-  price:     number;
-  qty:       number;
-  milkLevel: string;
-  iceLevel:  string;
-  toppings:  Topping[];
+  cartKey:     string;
+  id:          string;
+  name:        string;
+  basePrice:   number;
+  price:       number;
+  qty:         number;
+  size:        SizeValue;
+  milkType:    string;
+  iceLevel:    string;
+  toppings:    Topping[];
+  temperature: string;
+  sweetness:   number;
 }
 
 export default function Cashier() {
@@ -243,14 +266,16 @@ export default function Cashier() {
   useEffect(() => {
     if (!sessionStorage.getItem("loggedIn")) navigate("/cashier-login");
   }, []);
+
   const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
   const [translatedCategories, setTranslatedCategories] = useState(categories);
-  const [translatedMilkTypes, setTranslatedMilkTypes] = useState(MILK_TYPES);
-  const [translatedIceLevels, setTranslatedIceLevels] = useState(ICE_LEVELS);
-  const [translatedToppings, setTranslatedToppings] = useState(TOPPINGS);
+  const [translatedMilkTypes, setTranslatedMilkTypes]   = useState(MILK_TYPES);
+  const [translatedIceLevels, setTranslatedIceLevels]   = useState(ICE_LEVELS);
+  const [translatedToppings, setTranslatedToppings]     = useState(TOPPINGS);
   const [translatedUI, setTranslatedUI] = useState({ menu: "Menu", select: "Select items to build the current order." });
-  const translatedCategoryByName = categories.reduce<Record<string, string>>((acc, category, index) => {
-    acc[category] = translatedCategories[index] ?? category;
+
+  const translatedCategoryByName = categories.reduce<Record<string, string>>((acc, cat, i) => {
+    acc[cat] = translatedCategories[i] ?? cat;
     return acc;
   }, {});
 
@@ -269,14 +294,18 @@ export default function Cashier() {
     Promise.all(TOPPINGS.map(async t => ({ ...t, name: await translateText(t.name, { to: language }) }))).then(setTranslatedToppings);
     Promise.all([
       translateText("Menu", { to: language }),
-      translateText("Select items to build the current order.", { to: language })
+      translateText("Select items to build the current order.", { to: language }),
     ]).then(([menu, select]) => setTranslatedUI({ menu, select }));
   }, [language, categories]);
 
   const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
   const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
-  const [milkLevel, setMilkLevel]               = useState("Whole Milk");
+  const [editCartKey, setEditCartKey]           = useState<string | null>(null);
+  const [size, setSize]                         = useState<SizeValue>("Regular");
+  const [milkType, setMilkType]                 = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
+  const [temperature, setTemperature]           = useState("cold");
+  const [sweetness, setSweetness]               = useState(100);
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [customerName, setCustomerName]         = useState("");
   const [customerPhone, setCustomerPhone]       = useState("");
@@ -284,7 +313,6 @@ export default function Cashier() {
   const [redeem300, setRedeem300]               = useState(0);
   const [redeem100, setRedeem100]               = useState(0);
 
-  // Clear cart on successful order
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
       setOrderItems([]);
@@ -296,7 +324,6 @@ export default function Cashier() {
     }
   }, [fetcher.state, fetcher.data]);
 
-  // Handle customer phone lookup result
   useEffect(() => {
     const data = lookupFetcher.data;
     if (!data || lookupFetcher.state !== "idle") return;
@@ -308,48 +335,78 @@ export default function Cashier() {
       setLookedUpCustomer("not-found");
     }
   }, [lookupFetcher.state, lookupFetcher.data]);
+
   useEffect(() => {
     if (!selectedItem) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePopup();
-    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") closePopup(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedItem]);
 
   const openItem = (item: CashierMenuItem) => {
     setSelectedItem(item);
-    setMilkLevel("Whole Milk");
+    setEditCartKey(null);
+    setSize("Regular");
+    setMilkType("Whole Milk");
     setIceLevel("Regular");
+    setTemperature("cold");
+    setSweetness(100);
     setSelectedToppings([]);
   };
 
-  const closePopup = () => setSelectedItem(null);
+  const openItemForEdit = (cartItem: OrderItem) => {
+    const menuItem = Object.values(byCategory).flat().find(i => i.id === cartItem.id);
+    if (!menuItem) return;
+    setSelectedItem(menuItem);
+    setEditCartKey(cartItem.cartKey);
+    setSize(cartItem.size);
+    setMilkType(cartItem.milkType);
+    setIceLevel(cartItem.iceLevel);
+    setTemperature(cartItem.temperature || "cold");
+    setSweetness(cartItem.sweetness || 100);
+    setSelectedToppings(cartItem.toppings.map(t => t.id));
+  };
+
+  const closePopup = () => { setSelectedItem(null); setEditCartKey(null); };
 
   const toggleTopping = (id: number) =>
-    setSelectedToppings((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
-    );
+    setSelectedToppings(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
 
   const confirmAddToCart = () => {
     if (!selectedItem) return;
-    const toppings   = TOPPINGS.filter((t) => selectedToppings.includes(t.id));
-    const toppingIds = toppings.map((t) => t.id).sort().join(",");
-    const key        = `${selectedItem.id}-${milkLevel}-${iceLevel}-${toppingIds}`;
-    const itemTotal  = selectedItem.price + toppings.reduce((s, t) => s + t.price, 0);
-    setOrderItems((prev) => {
-      const existing = prev.find((o) => o.cartKey === key);
-      if (existing) return prev.map((o) => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
-      return [...prev, {
-        cartKey: key, id: selectedItem.id, name: selectedItem.name,
-        basePrice: selectedItem.price, price: itemTotal,
-        qty: 1, milkLevel, iceLevel, toppings,
-      }];
+    const toppings   = TOPPINGS.filter(t => selectedToppings.includes(t.id));
+    const toppingIds = toppings.map(t => t.id).sort().join(",");
+    const key        = `${selectedItem.id}-${size}-${milkType}-${iceLevel}-${temperature}-${sweetness}-${toppingIds}`;
+    const sizeUpcharge = SIZES.find(s => s.value === size)?.upcharge ?? 0;
+    const sizedPrice = parseFloat((selectedItem.price + sizeUpcharge).toFixed(2));
+    const itemTotal  = sizedPrice + toppings.reduce((s, t) => s + t.price, 0);
+    const newItem: OrderItem = {
+      cartKey: key, id: selectedItem.id, name: selectedItem.name,
+      basePrice: selectedItem.price, price: itemTotal,
+      qty: 1, size, milkType, iceLevel, toppings,
+      temperature: selectedItem.hasTemperature ? temperature : "",
+      sweetness,
+    };
+
+    setOrderItems(prev => {
+      if (editCartKey) {
+        const oldItem = prev.find(o => o.cartKey === editCartKey);
+        const conflict = prev.find(o => o.cartKey === key && o.cartKey !== editCartKey);
+        if (conflict) {
+          return prev
+            .filter(o => o.cartKey !== editCartKey)
+            .map(o => o.cartKey === key ? { ...o, qty: o.qty + (oldItem?.qty ?? 1) } : o);
+        }
+        return prev.map(o => o.cartKey === editCartKey ? { ...newItem, qty: oldItem?.qty ?? 1 } : o);
+      }
+      const existing = prev.find(o => o.cartKey === key);
+      if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+      return [...prev, newItem];
     });
     closePopup();
   };
 
-  const removeItem = (cartKey: string) => setOrderItems((prev) => prev.filter((o) => o.cartKey !== cartKey));
+  const removeItem = (cartKey: string) => setOrderItems(prev => prev.filter(o => o.cartKey !== cartKey));
 
   const subtotal        = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const tax             = subtotal * TAX_RATE;
@@ -370,17 +427,19 @@ export default function Cashier() {
 
   const handleLookup = () => {
     if (!customerPhone.trim()) return;
-    lookupFetcher.submit(
-      { intent: "lookup-customer", phone: customerPhone.trim() },
-      { method: "post" }
-    );
+    lookupFetcher.submit({ intent: "lookup-customer", phone: customerPhone.trim() }, { method: "post" });
   };
 
   const handleSubmit = () => {
-    if (orderItems.length === 0) return;
-    if (!customerName.trim()) return;
+    if (orderItems.length === 0 || !customerName.trim()) return;
     const payload: Record<string, string> = {
-      cart: JSON.stringify(orderItems.map((i) => ({ id: i.id, price: i.price, qty: i.qty }))),
+      cart: JSON.stringify(orderItems.map(i => ({
+        id: i.id, price: i.price, qty: i.qty,
+        size: i.size, iceLevel: i.iceLevel, milkType: i.milkType,
+        toppingNames: i.toppings.map(t => t.name),
+        temperature: i.temperature || null,
+        sweetness: i.sweetness,
+      }))),
       customerName: customerName.trim(),
       redeem300: String(redeem300),
       redeem100: String(redeem100),
@@ -395,9 +454,13 @@ export default function Cashier() {
 
   const items = byCategory[activeCategory] ?? [];
 
+  const modalSizeUpcharge = SIZES.find(s => s.value === size)?.upcharge ?? 0;
+  const modalPrice = selectedItem
+    ? parseFloat((selectedItem.price + modalSizeUpcharge + selectedToppings.length * 0.75).toFixed(2))
+    : 0;
+
   return (
     <div className="h-screen flex flex-col app-shell">
-      {/* Header */}
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
@@ -408,9 +471,8 @@ export default function Cashier() {
         </div>
       </header>
 
-      {/* Category tabs */}
       <nav className="bg-white/80 backdrop-blur border-b border-slate-200 flex shrink-0 overflow-x-auto" aria-label="Menu categories">
-        {categories.map((cat) => (
+        {categories.map(cat => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
@@ -426,7 +488,6 @@ export default function Cashier() {
         ))}
       </nav>
 
-      {/* Body */}
       <div className="flex-1 page-section w-full flex overflow-hidden px-4 py-5 gap-4">
         {/* Menu grid */}
         <div className="flex-1 section-card p-5 overflow-y-auto">
@@ -438,17 +499,14 @@ export default function Cashier() {
               </div>
               <Form method="post">
                 <input type="hidden" name="intent" value="logout" />
-                <button
-                  type="submit"
-                  className="secondary-btn px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                >
+                <button type="submit" className="secondary-btn px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
                   Cashier Logout
                 </button>
               </Form>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {items.map((item) => (
+            {items.map(item => (
               <button
                 key={item.id}
                 onClick={() => openItem(item)}
@@ -471,20 +529,30 @@ export default function Cashier() {
             {orderItems.length === 0 ? (
               <p className="text-sm text-slate-400 mt-2">No items added yet.</p>
             ) : (
-              orderItems.map((item) => (
-                <div key={item.cartKey} className="flex items-center justify-between py-2 border-b border-slate-100 text-sm">
-                  <div>
+              orderItems.map(item => (
+                <div key={item.cartKey} className="flex items-start justify-between py-2 border-b border-slate-100 text-sm">
+                  <div className="flex-1 min-w-0">
                     <p className="text-slate-800">{item.name} ×{item.qty}</p>
-                    <p className="text-slate-400 text-xs mt-0.5">
+                    <p className="text-slate-400 text-xs mt-0.5 truncate">
                       {[
-                        item.milkLevel !== "Whole Milk" && `Milk: ${item.milkLevel}`,
-                        item.iceLevel  !== "Regular"    && `Ice: ${item.iceLevel}`,
-                        item.toppings.length > 0 && item.toppings.map((t) => t.name).join(", "),
+                        `${item.size} (${SIZES.find(s => s.value === item.size)?.oz})`,
+                        item.temperature && item.temperature,
+                        item.sweetness !== 100 && `${item.sweetness}%`,
+                        item.milkType !== "Whole Milk" && item.milkType,
+                        item.iceLevel !== "Regular" && item.iceLevel,
+                        item.toppings.length > 0 && item.toppings.map(t => t.name).join(", "),
                       ].filter(Boolean).join(" · ")}
                     </p>
                   </div>
-                  <span className="flex items-center gap-2 text-slate-700">
-                    <span>${(item.price * item.qty).toFixed(2)}</span>
+                  <span className="flex items-center gap-1 text-slate-700 shrink-0 ml-2">
+                    <span className="text-xs">${(item.price * item.qty).toFixed(2)}</span>
+                    <button
+                      onClick={() => openItemForEdit(item)}
+                      aria-label={`Edit ${item.name}`}
+                      className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5"
+                    >
+                      ✎
+                    </button>
                     <button
                       onClick={() => removeItem(item.cartKey)}
                       aria-label={`Remove ${item.name}`}
@@ -505,7 +573,7 @@ export default function Cashier() {
                 <input
                   type="tel"
                   value={customerPhone}
-                  onChange={(e) => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
+                  onChange={e => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
                   placeholder="555-867-5309"
                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
@@ -534,7 +602,7 @@ export default function Cashier() {
               <input
                 type="text"
                 value={customerName}
-                onChange={(event) => setCustomerName(event.target.value)}
+                onChange={e => setCustomerName(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 placeholder="Enter customer name"
               />
@@ -601,7 +669,6 @@ export default function Cashier() {
         </aside>
       </div>
 
-      {/* Status bar */}
       <footer className="soft-footer px-6 py-1.5">
         <p className="text-xs">Cashier — click an item to customize and add to order</p>
       </footer>
@@ -613,13 +680,73 @@ export default function Cashier() {
           role="dialog"
           aria-modal="true"
           aria-label={`Customize ${selectedItem.name}`}
-          onClick={(e) => { if (e.target === e.currentTarget) closePopup(); }}
+          onClick={e => { if (e.target === e.currentTarget) closePopup(); }}
         >
-          <div className="surface-card w-full max-w-md p-6">
+          <div className="surface-card w-full max-w-md p-6 overflow-y-auto max-h-[90vh]">
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
-                <p className="text-slate-500 text-sm mt-0.5">${selectedItem.price.toFixed(2)}</p>
+                <p className="text-slate-500 text-sm mt-0.5">${modalPrice.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Size */}
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Size</p>
+              <div className="grid grid-cols-2 gap-2">
+                {SIZES.map(s => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setSize(s.value)}
+                    aria-pressed={size === s.value}
+                    className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${size === s.value ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
+                  >
+                    <span className="block font-bold">{s.value}</span>
+                    <span className="block text-[10px] opacity-75">{s.oz}{s.upcharge > 0 ? ` +$${s.upcharge.toFixed(2)}` : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Temperature */}
+            {selectedItem.hasTemperature && (
+              <div className="mb-5">
+                <p className="text-sm font-semibold text-slate-700 mb-2">Temperature</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {["hot", "cold"].map(temp => (
+                    <button
+                      key={temp}
+                      type="button"
+                      onClick={() => setTemperature(temp)}
+                      aria-pressed={temperature === temp}
+                      className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                        ${temperature === temp ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
+                    >
+                      {temp === "hot" ? "🔥 Hot" : "🧊 Cold"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sweetness */}
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Sweetness</p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {SWEETNESS_OPTIONS.map(pct => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setSweetness(pct)}
+                    aria-pressed={sweetness === pct}
+                    className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${sweetness === pct ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -627,42 +754,36 @@ export default function Cashier() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Ice Level</p>
               <div className="grid grid-cols-4 gap-2">
-                {ICE_LEVELS.map((level, index) => (
+                {ICE_LEVELS.map((level, i) => (
                   <button
                     key={level}
                     type="button"
                     onClick={() => setIceLevel(level)}
                     aria-pressed={iceLevel === level}
                     className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                      ${iceLevel === level
-                        ? "bg-indigo-600 border-indigo-600 text-white"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
-                      }`}
+                      ${iceLevel === level ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
                   >
-                    {translatedIceLevels[index] ?? level}
+                    {translatedIceLevels[i] ?? level}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Milk type — only for milk-based drinks */}
+            {/* Milk type */}
             {selectedItem.hasMilk && (
               <div className="mb-5">
                 <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {MILK_TYPES.map((level, index) => (
+                  {MILK_TYPES.map((level, i) => (
                     <button
                       key={level}
                       type="button"
-                      onClick={() => setMilkLevel(level)}
-                      aria-pressed={milkLevel === level}
+                      onClick={() => setMilkType(level)}
+                      aria-pressed={milkType === level}
                       className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                        ${milkLevel === level
-                          ? "bg-indigo-600 border-indigo-600 text-white"
-                          : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
-                        }`}
+                        ${milkType === level ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
                     >
-                      {translatedMilkTypes[index] ?? level}
+                      {translatedMilkTypes[i] ?? level}
                     </button>
                   ))}
                 </div>
@@ -673,38 +794,29 @@ export default function Cashier() {
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
               <div className="grid grid-cols-2 gap-2">
-                {TOPPINGS.map((topping, index) => (
+                {TOPPINGS.map((topping, i) => (
                   <button
                     key={topping.id}
                     type="button"
                     onClick={() => toggleTopping(topping.id)}
                     aria-pressed={selectedToppings.includes(topping.id)}
                     className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                      ${selectedToppings.includes(topping.id)
-                        ? "bg-indigo-600 border-indigo-600 text-white"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
-                      }`}
+                      ${selectedToppings.includes(topping.id) ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
                   >
-                    {translatedToppings[index]?.name ?? topping.name}
+                    {translatedToppings[i]?.name ?? topping.name}
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="flex gap-3 mt-2">
-              <button
-                type="button"
-                onClick={closePopup}
-                className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
-              >
+              <button type="button" onClick={closePopup}
+                className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors">
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={confirmAddToCart}
-                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors"
-              >
-                Add to Order
+              <button type="button" onClick={confirmAddToCart}
+                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors">
+                {editCartKey ? "Update Item" : "Add to Order"}
               </button>
             </div>
           </div>
