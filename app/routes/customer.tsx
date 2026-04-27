@@ -804,7 +804,7 @@ export default function Customer() {
                       key={topping.id}
                       onClick={() => toggleTopping(topping.id)}
                       aria-pressed={selectedToppings.includes(topping.id)}
-                      className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      className={`py-2 px-3 text-xs font-medium rounded-lg border text-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${selectedToppings.includes(topping.id)
                           ? "bg-indigo-600 border-indigo-600 text-white"
                           : hasBlocked
