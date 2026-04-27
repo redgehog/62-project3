@@ -21,12 +21,11 @@ const ICE_LEVELS       = ["No Ice", "Less Ice", "Regular", "Extra Ice"];
 const SWEETNESS_OPTIONS = [25, 50, 75, 100, 125];
 
 const SIZES = [
-  { value: "S" as const, oz: "12oz", multiplier: 1.00 },
-  { value: "M" as const, oz: "16oz", multiplier: 1.20 },
-  { value: "L" as const, oz: "24oz", multiplier: 1.75 },
+  { value: "Regular" as const, oz: "16oz", upcharge: 0.00 },
+  { value: "Large"   as const, oz: "24oz", upcharge: 1.25 },
 ];
 
-type SizeValue = "S" | "M" | "L";
+type SizeValue = "Regular" | "Large";
 
 interface Topping {
   id:    number;
@@ -302,7 +301,7 @@ export default function Cashier() {
   const [orderItems, setOrderItems]             = useState<OrderItem[]>([]);
   const [selectedItem, setSelectedItem]         = useState<CashierMenuItem | null>(null);
   const [editCartKey, setEditCartKey]           = useState<string | null>(null);
-  const [size, setSize]                         = useState<SizeValue>("M");
+  const [size, setSize]                         = useState<SizeValue>("Regular");
   const [milkType, setMilkType]                 = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [temperature, setTemperature]           = useState("cold");
@@ -347,7 +346,7 @@ export default function Cashier() {
   const openItem = (item: CashierMenuItem) => {
     setSelectedItem(item);
     setEditCartKey(null);
-    setSize("M");
+    setSize("Regular");
     setMilkType("Whole Milk");
     setIceLevel("Regular");
     setTemperature("cold");
@@ -378,8 +377,8 @@ export default function Cashier() {
     const toppings   = TOPPINGS.filter(t => selectedToppings.includes(t.id));
     const toppingIds = toppings.map(t => t.id).sort().join(",");
     const key        = `${selectedItem.id}-${size}-${milkType}-${iceLevel}-${temperature}-${sweetness}-${toppingIds}`;
-    const sizeMultiplier = SIZES.find(s => s.value === size)?.multiplier ?? 1;
-    const sizedPrice = parseFloat((selectedItem.price * sizeMultiplier).toFixed(2));
+    const sizeUpcharge = SIZES.find(s => s.value === size)?.upcharge ?? 0;
+    const sizedPrice = parseFloat((selectedItem.price + sizeUpcharge).toFixed(2));
     const itemTotal  = sizedPrice + toppings.reduce((s, t) => s + t.price, 0);
     const newItem: OrderItem = {
       cartKey: key, id: selectedItem.id, name: selectedItem.name,
@@ -455,9 +454,9 @@ export default function Cashier() {
 
   const items = byCategory[activeCategory] ?? [];
 
-  const modalSizeMultiplier = SIZES.find(s => s.value === size)?.multiplier ?? 1;
+  const modalSizeUpcharge = SIZES.find(s => s.value === size)?.upcharge ?? 0;
   const modalPrice = selectedItem
-    ? parseFloat((selectedItem.price * modalSizeMultiplier + selectedToppings.length * 0.75).toFixed(2))
+    ? parseFloat((selectedItem.price + modalSizeUpcharge + selectedToppings.length * 0.75).toFixed(2))
     : 0;
 
   return (
@@ -694,7 +693,7 @@ export default function Cashier() {
             {/* Size */}
             <div className="mb-5">
               <p className="text-sm font-semibold text-slate-700 mb-2">Size</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {SIZES.map(s => (
                   <button
                     key={s.value}
@@ -705,7 +704,7 @@ export default function Cashier() {
                       ${size === s.value ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
                   >
                     <span className="block font-bold">{s.value}</span>
-                    <span className="block text-[10px] opacity-75">{s.oz}</span>
+                    <span className="block text-[10px] opacity-75">{s.oz}{s.upcharge > 0 ? ` +$${s.upcharge.toFixed(2)}` : ""}</span>
                   </button>
                 ))}
               </div>
