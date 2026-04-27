@@ -433,8 +433,8 @@ export default function Cashier() {
           <div className="mb-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="section-title">Menu</h2>
-                <p className="section-description">Select items to build the current order.</p>
+                <h2 className="section-title">{translatedUI.menu}</h2>
+                <p className="section-description">{translatedUI.select}</p>
               </div>
               <Form method="post">
                 <input type="hidden" name="intent" value="logout" />
@@ -446,8 +446,6 @@ export default function Cashier() {
                 </button>
               </Form>
             </div>
-            <h2 className="section-title">{translatedUI.menu}</h2>
-            <p className="section-description">{translatedUI.select}</p>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {items.map((item) => (
