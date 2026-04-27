@@ -813,9 +813,6 @@ export default function Customer() {
                         }`}
                     >
                       <span>{topping.name}</span>
-                      {topping.allergens.length > 0 && (
-                        <span className="ml-1">{topping.allergens.map((a) => ALLERGEN_ICONS[a]).join("")}</span>
-                      )}
                       {hasBlocked && <span className="block text-amber-600 font-normal" style={{fontSize:"10px"}}>contains your allergen</span>}
                     </button>
                   );
