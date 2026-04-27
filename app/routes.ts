@@ -13,5 +13,6 @@ export default [
   route("customer", "routes/customer.tsx"),
   route("menu-board", "routes/menu-board.tsx"),
   route("api/weather", "routes/api.weather.ts"),
+  route("api/translate", "routes/api.translate.ts"),
   route("kitchen", "routes/kitchen.tsx"),
 ] satisfies RouteConfig;
