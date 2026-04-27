@@ -47,6 +47,46 @@ const TOPPINGS: Topping[] = [
   { id: 17, name: "Pudding",      price: 0.75, allergens: ["dairy", "eggs"] },
 ];
 
+const UI_STRINGS = {
+  tagline:            "Shop Operations Suite",
+  kioskLabel:         "Customer Kiosk",
+  cartTitle:          "Your Cart",
+  cartDesc:           "Review selected items and place your order.",
+  backToMenu:         "Back to Menu",
+  emptyCart:          "No items in cart.",
+  total:              "Total",
+  pointsDiscount:     "points discount applied",
+  redeemPoints:       "Redeem Points",
+  ptsLeft:            "pts left",
+  pts300:             "300 pts → $4 off",
+  pts100:             "100 pts → $1 off",
+  applyAll:           "Apply All",
+  clear:              "Clear",
+  phoneLabel:         "Phone Number (optional — earn loyalty points)",
+  lookUp:             "Look up",
+  noAccount:          "No account found — a new one will be created for this number.",
+  placingOrder:       "Placing order…",
+  placeOrder:         "Place Order",
+  cartLabel:          "Cart",
+  menuTitle:          "Menu",
+  menuDesc:           "Choose a category, then tap an item to customize and add it to your cart.",
+  allergenFilter:     "Filter out allergens — tap to hide items containing:",
+  clearAll:           "Clear all",
+  hidingItems:        "Hiding items containing:",
+  availableItems:     "Available items in this category.",
+  noItems:            "No items available in this category right now.",
+  allItemsFiltered:   "All items in this category contain your filtered allergens.",
+  footer:             "Customer kiosk — tap an item to customize and add to your order",
+  contains:           "Contains",
+  iceLevel:           "Ice Level",
+  milkType:           "Milk Type",
+  toppings:           "Toppings",
+  toppingPrice:       "(+$0.75 each)",
+  cancel:             "Cancel",
+  addToCart:          "Add to Cart",
+  containsAllergen:   "contains your allergen",
+} as const;
+
 interface CartItem {
   cartKey:   string;
   id:        string;
@@ -300,6 +340,7 @@ export default function Customer() {
   const [translatedMilkTypes, setTranslatedMilkTypes] = useState(MILK_TYPES);
   const [translatedIceLevels, setTranslatedIceLevels] = useState(ICE_LEVELS);
   const [translatedToppings, setTranslatedToppings] = useState(TOPPINGS);
+  const [translatedUI, setTranslatedUI] = useState<typeof UI_STRINGS>({ ...UI_STRINGS });
 
   const currentCategory = categories[activeCategory];
   const translatedCurrentCategory = translatedCategories[activeCategory];
@@ -313,8 +354,16 @@ export default function Customer() {
       setTranslatedMilkTypes(MILK_TYPES);
       setTranslatedIceLevels(ICE_LEVELS);
       setTranslatedToppings(TOPPINGS);
+      setTranslatedUI({ ...UI_STRINGS });
       return;
     }
+
+    const keys = Object.keys(UI_STRINGS) as (keyof typeof UI_STRINGS)[];
+    Promise.all(keys.map(k => translateText(UI_STRINGS[k], { to: language }))).then(vals => {
+      const result = {} as typeof UI_STRINGS;
+      keys.forEach((k, i) => { (result as Record<string, string>)[k] = vals[i]; });
+      setTranslatedUI(result);
+    });
 
     // Translate categories
     Promise.all(categories.map(cat => translateText(cat, { to: language })))
@@ -426,7 +475,7 @@ export default function Customer() {
             >
               Boba House
             </button>
-            <p className="topbar-tagline">Shop Operations Suite</p>
+            <p className="topbar-tagline">{translatedUI.tagline}</p>
           </div>
           {weather && (
             <div className="flex items-center gap-1.5 text-white/80 text-sm font-medium">
@@ -434,7 +483,7 @@ export default function Customer() {
               <span className="text-white/50 text-xs hidden sm:inline">· {weather.condition}</span>
             </div>
           )}
-          <span className="topbar-chip">Customer Kiosk</span>
+          <span className="topbar-chip">{translatedUI.kioskLabel}</span>
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value as LanguageCode)}
@@ -456,18 +505,18 @@ export default function Customer() {
           <div className="max-w-2xl mx-auto section-card p-6">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
-                <h2 className="section-title">Your Cart</h2>
-                <p className="section-description">Review selected items and place your order.</p>
+                <h2 className="section-title">{translatedUI.cartTitle}</h2>
+                <p className="section-description">{translatedUI.cartDesc}</p>
               </div>
               <button
                 onClick={() => setShowCart(false)}
                 className="secondary-btn px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
-                Back to Menu
+                {translatedUI.backToMenu}
               </button>
             </div>
             {cart.length === 0 ? (
-              <p className="text-slate-500 text-sm">No items in cart.</p>
+              <p className="text-slate-500 text-sm">{translatedUI.emptyCart}</p>
             ) : (
               <>
                 <div className="section-card divide-y divide-slate-100">
@@ -497,44 +546,44 @@ export default function Customer() {
                   ))}
                 </div>
                 <div className="mt-4 flex items-center justify-between font-bold text-slate-900 text-base">
-                  <span>Total</span><span>${adjustedTotal.toFixed(2)}</span>
+                  <span>{translatedUI.total}</span><span>${adjustedTotal.toFixed(2)}</span>
                 </div>
                 {redeemDiscount > 0 && (
-                  <p className="text-xs text-emerald-600 text-right">-${redeemDiscount.toFixed(2)} points discount applied</p>
+                  <p className="text-xs text-emerald-600 text-right">-${redeemDiscount.toFixed(2)} {translatedUI.pointsDiscount}</p>
                 )}
                 {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
                   <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-indigo-700">Redeem Points</span>
-                      <span className="text-xs text-indigo-500">{remainingPoints} pts left</span>
+                      <span className="text-xs font-semibold text-indigo-700">{translatedUI.redeemPoints}</span>
+                      <span className="text-xs text-indigo-500">{remainingPoints} {translatedUI.ptsLeft}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <button type="button" onClick={() => setRedeem300(r => r + 1)}
                         disabled={remainingPoints < 300}
                         className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                        300 pts → $4 off
+                        {translatedUI.pts300}
                       </button>
                       <button type="button" onClick={() => setRedeem100(r => r + 1)}
                         disabled={remainingPoints < 100}
                         className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                        100 pts → $1 off
+                        {translatedUI.pts100}
                       </button>
                       <button type="button" onClick={applyAllPoints}
                         className="text-xs px-2 py-1.5 rounded border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100">
-                        Apply All
+                        {translatedUI.applyAll}
                       </button>
                     </div>
                     {pointsUsed > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-indigo-600">{pointsUsed} pts → -${redeemDiscount.toFixed(2)} off</span>
                         <button type="button" onClick={() => { setRedeem300(0); setRedeem100(0); }}
-                          className="text-xs text-slate-400 hover:text-red-500">Clear</button>
+                          className="text-xs text-slate-400 hover:text-red-500">{translatedUI.clear}</button>
                       </div>
                     )}
                   </div>
                 )}
                 <div className="mt-4 space-y-2">
-                  <span className="block text-xs font-medium text-slate-600">Phone Number (optional — earn loyalty points)</span>
+                  <span className="block text-xs font-medium text-slate-600">{translatedUI.phoneLabel}</span>
                   <div className="flex gap-2">
                     <input
                       type="tel"
@@ -555,11 +604,11 @@ export default function Customer() {
                       disabled={!customerPhone.trim() || lookupFetcher.state !== "idle"}
                       className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {lookupFetcher.state !== "idle" ? "…" : "Look up"}
+                      {lookupFetcher.state !== "idle" ? "…" : translatedUI.lookUp}
                     </button>
                   </div>
                   {lookedUpCustomer === "not-found" && (
-                    <p className="text-xs text-amber-600">No account found — a new one will be created for this number.</p>
+                    <p className="text-xs text-amber-600">{translatedUI.noAccount}</p>
                   )}
                   {lookedUpCustomer && lookedUpCustomer !== "not-found" && (
                     <p className="text-xs text-emerald-600 font-medium">
@@ -585,7 +634,7 @@ export default function Customer() {
                   disabled={fetcher.state !== "idle"}
                   className="primary-btn mt-4 w-full py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {fetcher.state !== "idle" ? "Placing order…" : "Place Order"}
+                  {fetcher.state !== "idle" ? translatedUI.placingOrder : translatedUI.placeOrder}
                 </button>
                 {"ok" in (fetcher.data ?? {}) && !(fetcher.data as { ok: boolean }).ok && (
                   <p className="text-xs text-red-600 mt-2 text-center">
@@ -599,20 +648,20 @@ export default function Customer() {
           <div className="section-card p-5">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h2 className="section-title">Menu</h2>
-                <p className="section-description">Choose a category, then tap an item to customize and add it to your cart.</p>
+                <h2 className="section-title">{translatedUI.menuTitle}</h2>
+                <p className="section-description">{translatedUI.menuDesc}</p>
               </div>
               <button
                 onClick={() => setShowCart(true)}
                 className="primary-btn px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 whitespace-nowrap"
               >
-                Cart ({totalItems})
+                {translatedUI.cartLabel} ({totalItems})
               </button>
             </div>
 
             {/* Allergen filter */}
             <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-xs font-semibold text-amber-800 mb-2">Filter out allergens — tap to hide items containing:</p>
+              <p className="text-xs font-semibold text-amber-800 mb-2">{translatedUI.allergenFilter}</p>
               <div className="flex flex-wrap gap-2">
                 {ALL_ALLERGENS.map((allergen) => {
                   const blocked = blockedAllergens.includes(allergen);
@@ -638,13 +687,13 @@ export default function Customer() {
                     onClick={() => setBlockedAllergens([])}
                     className="px-3 py-1 rounded-full text-xs font-semibold border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition-colors"
                   >
-                    Clear all
+                    {translatedUI.clearAll}
                   </button>
                 )}
               </div>
               {blockedAllergens.length > 0 && (
                 <p className="text-xs text-amber-700 mt-2">
-                  Hiding items containing: {blockedAllergens.map((a) => a.replace("-", " ")).join(", ")}
+                  {translatedUI.hidingItems} {blockedAllergens.map((a) => a.replace("-", " ")).join(", ")}
                 </p>
               )}
             </div>
@@ -676,7 +725,7 @@ export default function Customer() {
 
             <div className="mb-4">
               <h3 className="text-base font-semibold text-slate-900">{translatedCurrentCategory}</h3>
-              <p className="section-description">Available items in this category.</p>
+              <p className="section-description">{translatedUI.availableItems}</p>
             </div>
 
             <div className="grid grid-cols-4 gap-3">
@@ -701,8 +750,8 @@ export default function Customer() {
               {items.filter((item) => !item.allergens.some((a) => blockedAllergens.includes(a))).length === 0 && (
               <p className="text-sm text-slate-500 py-8 text-center">
                 {items.length === 0
-                  ? "No items available in this category right now."
-                  : "All items in this category contain your filtered allergens."}
+                  ? translatedUI.noItems
+                  : translatedUI.allItemsFiltered}
               </p>
             )}
           </div>
@@ -711,7 +760,7 @@ export default function Customer() {
 
       {/* Status bar */}
       <footer className="soft-footer px-6 py-1.5 shrink-0">
-        <p className="text-xs">Customer kiosk — tap an item to customize and add to your order</p>
+        <p className="text-xs">{translatedUI.footer}</p>
       </footer>
 
       {/* Customization popup */}
@@ -733,7 +782,7 @@ export default function Customer() {
               </div>
               {selectedItem.allergens.length > 0 && (
                 <div className="text-right">
-                  <p className="text-xs text-slate-400 mb-1">Contains</p>
+                  <p className="text-xs text-slate-400 mb-1">{translatedUI.contains}</p>
                   <div className="flex flex-wrap gap-1 justify-end">
                     {selectedItem.allergens.map((a) => (
                       <span
@@ -751,7 +800,7 @@ export default function Customer() {
 
             {/* Ice level */}
             <div className="mb-5">
-              <p className="text-sm font-semibold text-slate-700 mb-2">Ice Level</p>
+              <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.iceLevel}</p>
               <div className="grid grid-cols-4 gap-2">
                 {translatedIceLevels.map((level) => (
                   <button
@@ -773,7 +822,7 @@ export default function Customer() {
             {/* Milk level — only for milk-based drinks */}
             {selectedItem.hasMilk && (
               <div className="mb-5">
-                <p className="text-sm font-semibold text-slate-700 mb-2">Milk Type</p>
+                <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.milkType}</p>
                 <div className="grid grid-cols-3 gap-2">
                   {translatedMilkTypes.map((level) => (
                     <button
@@ -795,7 +844,7 @@ export default function Customer() {
 
             {/* Toppings */}
             <div className="mb-5">
-              <p className="text-sm font-semibold text-slate-700 mb-2">Toppings <span className="text-slate-400 font-normal">(+$0.75 each)</span></p>
+              <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.toppings} <span className="text-slate-400 font-normal">{translatedUI.toppingPrice}</span></p>
               <div className="grid grid-cols-2 gap-2">
                 {translatedToppings.map((topping) => {
                   const hasBlocked = topping.allergens.some((a) => blockedAllergens.includes(a));
@@ -816,7 +865,7 @@ export default function Customer() {
                       {topping.allergens.length > 0 && (
                         <span className="ml-1">{topping.allergens.map((a) => ALLERGEN_ICONS[a]).join("")}</span>
                       )}
-                      {hasBlocked && <span className="block text-amber-600 font-normal" style={{fontSize:"10px"}}>contains your allergen</span>}
+                      {hasBlocked && <span className="block text-amber-600 font-normal" style={{fontSize:"10px"}}>{translatedUI.containsAllergen}</span>}
                     </button>
                   );
                 })}
@@ -829,13 +878,13 @@ export default function Customer() {
                 onClick={closePopup}
                 className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
               >
-                Cancel
+                {translatedUI.cancel}
               </button>
               <button
                 onClick={confirmAddToCart}
                 className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors"
               >
-                Add to Cart
+                {translatedUI.addToCart}
               </button>
             </div>
           </div>
