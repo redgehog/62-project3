@@ -23,13 +23,6 @@ const SIZES = [
 
 type SizeValue = "Regular" | "Large";
 
-const ALLERGEN_ICONS: Record<string, string> = {
-  dairy:       "🥛",
-  soy:         "🫘",
-  "tree-nuts": "🌰",
-  gluten:      "🌾",
-  eggs:        "🥚",
-};
 
 const ALL_ALLERGENS = ["dairy", "soy", "tree-nuts", "gluten", "eggs"] as const;
 
@@ -729,7 +722,7 @@ export default function Customer() {
                       className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500
                         ${blocked ? "bg-amber-600 border-amber-600 text-white" : "bg-white border-amber-300 text-amber-800 hover:bg-amber-100"}`}
                     >
-                      {ALLERGEN_ICONS[allergen]} {allergen.replace("-", " ")}
+                      {allergen.replace("-", " ")}
                     </button>
                   );
                 })}
@@ -793,7 +786,7 @@ export default function Customer() {
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500
                             ${blocked ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-purple-300 text-purple-800 hover:bg-purple-100"}`}
                         >
-                          {ALLERGEN_ICONS[allergen]} {allergen.replace("-", " ")}
+                          {allergen.replace("-", " ")}
                         </button>
                       );
                     })}
@@ -887,8 +880,8 @@ export default function Customer() {
                         <p className="text-sm font-semibold text-slate-900">{item.name}</p>
                         <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
                         {item.allergens.length > 0 && (
-                          <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
-                            {item.allergens.map(a => ALLERGEN_ICONS[a]).join(" ")}
+                          <p className="mt-2 text-xs text-amber-700 leading-snug" aria-label={`Contains: ${item.allergens.join(", ")}`}>
+                            {item.allergens.map(a => a.replace("-", " ")).join(", ")}
                           </p>
                         )}
                       </button>
@@ -933,7 +926,7 @@ export default function Customer() {
                     {selectedItem.allergens.map(a => (
                       <span key={a} title={a.replace("-", " ")}
                         className="inline-flex items-center gap-1 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-2 py-0.5">
-                        {ALLERGEN_ICONS[a]} {a.replace("-", " ")}
+                        {a.replace("-", " ")}
                       </span>
                     ))}
                   </div>

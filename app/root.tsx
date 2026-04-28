@@ -10,6 +10,7 @@ import { createContext, useState } from "react";
 import { ClerkProvider } from "@clerk/react-router";
 import { clerkMiddleware, rootAuthLoader } from "@clerk/react-router/server";
 import type { LanguageCode } from "./translate";
+import { TTSProvider, TTSWidget } from "./tts";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -61,7 +62,10 @@ export default function App({ loaderData }: Route.ComponentProps) {
   return (
     <ClerkProvider loaderData={loaderData}>
       <TranslationContext.Provider value={{ language, setLanguage }}>
-        <Outlet />
+        <TTSProvider>
+          <Outlet />
+          <TTSWidget />
+        </TTSProvider>
       </TranslationContext.Provider>
     </ClerkProvider>
   );
