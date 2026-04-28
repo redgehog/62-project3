@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router";
 import { TranslationContext } from "./root";
+
+const TTS_HIDDEN_ROUTES = ["/kitchen", "/menu-board"];
 
 const LANG_BCP47: Record<string, string> = {
   en: "en-US", es: "es-ES", fr: "fr-FR", zh: "zh-CN",
@@ -76,8 +79,9 @@ export function TTSProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function TTSWidget() {
-  const ctx = useContext(TTSContext);
-  if (!ctx) return null;
+  const ctx      = useContext(TTSContext);
+  const location = useLocation();
+  if (!ctx || TTS_HIDDEN_ROUTES.includes(location.pathname)) return null;
   const { speak, stop, isSpeaking } = ctx;
 
   return (
