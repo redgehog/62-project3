@@ -41,7 +41,7 @@ export default function Portal() {
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className="section-card p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                className="section-card p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer"
               >
                 <p className="text-base font-semibold text-slate-900">{label}</p>
                 <p className="text-sm text-slate-500 mt-1">{description}</p>

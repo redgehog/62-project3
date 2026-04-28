@@ -28,17 +28,20 @@ const SIZES = [
 type SizeValue = "Regular" | "Large";
 
 interface Topping {
-  id:    number;
-  name:  string;
-  price: number;
+  id:        number;
+  name:      string;
+  price:     number;
+  allergens: string[];
 }
 
 const TOPPINGS: Topping[] = [
-  { id: 14, name: "Boba",         price: 0.75 },
-  { id: 15, name: "Lychee Jelly", price: 0.75 },
-  { id: 16, name: "Grass Jelly",  price: 0.75 },
-  { id: 17, name: "Pudding",      price: 0.75 },
+  { id: 14, name: "Boba",         price: 0.75, allergens: ["gluten"]        },
+  { id: 15, name: "Lychee Jelly", price: 0.75, allergens: []                },
+  { id: 16, name: "Grass Jelly",  price: 0.75, allergens: []                },
+  { id: 17, name: "Pudding",      price: 0.75, allergens: ["dairy", "eggs"] },
 ];
+
+const ALL_ALLERGENS = ["dairy", "soy", "tree-nuts", "gluten", "eggs"] as const;
 
 const normalizePhone = (p: string) => p.replace(/\D/g, "");
 
@@ -239,6 +242,19 @@ interface CashierMenuItem {
   hasTemperature: boolean;
 }
 
+function generateSurprise(allItems: CashierMenuItem[], excluded: string[]) {
+  const pool = allItems.filter((v, i, a) => a.findIndex(x => x.id === v.id) === i);
+  if (pool.length === 0) return null;
+  const item      = pool[Math.floor(Math.random() * pool.length)];
+  const eligible  = TOPPINGS.filter(t => !t.allergens.some(a => excluded.includes(a)));
+  const count     = Math.floor(Math.random() * Math.min(eligible.length + 1, 3));
+  const toppings  = [...eligible].sort(() => Math.random() - 0.5).slice(0, count);
+  const sweetness = SWEETNESS_OPTIONS[Math.floor(Math.random() * SWEETNESS_OPTIONS.length)];
+  const iceLevel  = ICE_LEVELS[Math.floor(Math.random() * ICE_LEVELS.length)];
+  const size      = SIZES[Math.floor(Math.random() * SIZES.length)].value;
+  return { item, toppings, sweetness, iceLevel, size };
+}
+
 interface OrderItem {
   cartKey:     string;
   id:          string;
@@ -312,6 +328,8 @@ export default function Cashier() {
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
   const [redeem300, setRedeem300]               = useState(0);
   const [redeem100, setRedeem100]               = useState(0);
+  const [surpriseExcluded, setSurpriseExcluded] = useState<string[]>([]);
+  const [surpriseResult,   setSurpriseResult]   = useState<ReturnType<typeof generateSurprise>>(null);
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
@@ -464,7 +482,7 @@ export default function Cashier() {
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
-            <button onClick={() => navigate("/portal")} className="brand-link hover:text-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded">Boba House</button>
+            <span className="brand-link">Boba House</span>
             <p className="topbar-tagline">Shop Operations Suite</p>
           </div>
           <span className="topbar-chip">Cashier Workspace</span>
@@ -483,9 +501,20 @@ export default function Cashier() {
                 : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
           >
-            {cat === "Seasonal" ? "🍂 Seasonal" : translatedCategoryByName[cat]}
+            {translatedCategoryByName[cat] ?? cat}
           </button>
         ))}
+        <button
+          onClick={() => setActiveCategory("__surprise__")}
+          aria-pressed={activeCategory === "__surprise__"}
+          className={`flex-1 min-w-max py-3 px-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
+            ${activeCategory === "__surprise__"
+              ? "border-purple-500 text-purple-700 bg-purple-50"
+              : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+        >
+          Surprise Me
+        </button>
       </nav>
 
       <div className="flex-1 page-section w-full flex overflow-hidden px-4 py-5 gap-4">
@@ -505,18 +534,113 @@ export default function Cashier() {
               </Form>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            {items.map(item => (
+          {activeCategory === "__surprise__" ? (
+            <div>
+              <div className="mb-5 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                <p className="text-sm font-semibold text-purple-800 mb-3">Exclude allergens from your surprise:</p>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_ALLERGENS.map(allergen => {
+                    const blocked = surpriseExcluded.includes(allergen);
+                    return (
+                      <button
+                        key={allergen}
+                        onClick={() => setSurpriseExcluded(prev =>
+                          blocked ? prev.filter(a => a !== allergen) : [...prev, allergen]
+                        )}
+                        aria-pressed={blocked}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500
+                          ${blocked ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-purple-300 text-purple-800 hover:bg-purple-100"}`}
+                      >
+                        {allergen.replace("-", " ")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <button
-                key={item.id}
-                onClick={() => openItem(item)}
-                className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                onClick={() => setSurpriseResult(generateSurprise(
+                          Object.entries(byCategory)
+                            .filter(([cat]) => !["Coffee", "Seasonal", "Specialty"].includes(cat))
+                            .flatMap(([, items]) => items),
+                          surpriseExcluded
+                        ))}
+                className="primary-btn w-full py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
               >
-                <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                Surprise Me!
               </button>
-            ))}
-          </div>
+              {surpriseResult && (() => {
+                const r = surpriseResult;
+                const sizeUpcharge = SIZES.find(s => s.value === r.size)?.upcharge ?? 0;
+                const totalPrice = parseFloat((r.item.price + sizeUpcharge + r.toppings.reduce((s, t) => s + t.price, 0)).toFixed(2));
+                return (
+                  <div className="section-card p-5 border-purple-300 bg-purple-50">
+                    <h3 className="text-lg font-bold text-slate-900 mb-0.5">{r.item.name}</h3>
+                    <p className="text-slate-500 text-sm mb-4">${totalPrice.toFixed(2)}</p>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm mb-5">
+                      <dt className="text-slate-500">Size</dt>
+                      <dd className="text-slate-800 font-medium">{r.size} ({SIZES.find(s => s.value === r.size)?.oz})</dd>
+                      <dt className="text-slate-500">Sweetness</dt>
+                      <dd className="text-slate-800 font-medium">{r.sweetness}%</dd>
+                      <dt className="text-slate-500">Ice</dt>
+                      <dd className="text-slate-800 font-medium">{r.iceLevel}</dd>
+                      <dt className="text-slate-500">Toppings</dt>
+                      <dd className="text-slate-800 font-medium">{r.toppings.length > 0 ? r.toppings.map(t => t.name).join(", ") : "None"}</dd>
+                    </dl>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const toppingIds = r.toppings.map(t => t.id).sort().join(",");
+                          const milkType   = r.item.hasMilk ? "Whole Milk" : "No Milk";
+                          const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-cold-${r.sweetness}-${toppingIds}`;
+                          const sizedPrice = parseFloat((r.item.price + sizeUpcharge).toFixed(2));
+                          const newItem: OrderItem = {
+                            cartKey: key, id: r.item.id, name: r.item.name,
+                            basePrice: r.item.price, price: sizedPrice + r.toppings.reduce((s, t) => s + t.price, 0),
+                            qty: 1, size: r.size, milkType, iceLevel: r.iceLevel, toppings: r.toppings,
+                            temperature: r.item.hasTemperature ? "cold" : "",
+                            sweetness: r.sweetness,
+                          };
+                          setOrderItems(prev => {
+                            const existing = prev.find(o => o.cartKey === key);
+                            if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+                            return [...prev, newItem];
+                          });
+                          setSurpriseResult(null);
+                        }}
+                        className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      >
+                        Add to Order
+                      </button>
+                      <button
+                        onClick={() => setSurpriseResult(generateSurprise(
+                          Object.entries(byCategory)
+                            .filter(([cat]) => !["Coffee", "Seasonal", "Specialty"].includes(cat))
+                            .flatMap(([, items]) => items),
+                          surpriseExcluded
+                        ))}
+                        className="secondary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => openItem(item)}
+                  className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                >
+                  <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                  <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Order summary */}
