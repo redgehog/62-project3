@@ -35,9 +35,6 @@ body {
   letter-spacing: 0.025em;
 }
 
-.brand-link:hover {
-  color: #bfdbfe;
-}
 
 .topbar-row {
   width: min(1200px, 100%);

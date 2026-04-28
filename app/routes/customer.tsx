@@ -1,6 +1,6 @@
 // Customer ordering kiosk
 import { useState, useEffect, useContext } from "react";
-import { useLoaderData, useNavigate, useFetcher } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
 import type { PoolClient } from "pg";
@@ -292,8 +292,20 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
+function generateSurprise(allItems: MenuItem[], excluded: string[]) {
+  const pool = allItems.filter((v, i, a) => a.findIndex(x => x.id === v.id) === i);
+  if (pool.length === 0) return null;
+  const item      = pool[Math.floor(Math.random() * pool.length)];
+  const eligible  = TOPPINGS.filter(t => !t.allergens.some(a => excluded.includes(a)));
+  const count     = Math.floor(Math.random() * Math.min(eligible.length + 1, 3));
+  const toppings  = [...eligible].sort(() => Math.random() - 0.5).slice(0, count);
+  const sweetness = SWEETNESS_OPTIONS[Math.floor(Math.random() * SWEETNESS_OPTIONS.length)];
+  const iceLevel  = ICE_LEVELS[Math.floor(Math.random() * ICE_LEVELS.length)];
+  const size      = SIZES[Math.floor(Math.random() * SIZES.length)].value;
+  return { item, toppings, sweetness, iceLevel, size };
+}
+
 export default function Customer() {
-  const navigate = useNavigate();
   const { categories, menuItems } = useLoaderData<typeof loader>();
   const fetcher       = useFetcher<typeof action>();
   const lookupFetcher = useFetcher<typeof action>();
@@ -340,6 +352,8 @@ export default function Customer() {
   const [sweetness, setSweetness]               = useState(100);
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [weather, setWeather]                   = useState<{ temp_f: number; condition: string } | null>(null);
+  const [surpriseExcluded, setSurpriseExcluded] = useState<string[]>([]);
+  const [surpriseResult,   setSurpriseResult]   = useState<ReturnType<typeof generateSurprise>>(null);
 
   useEffect(() => {
     const fetchWeather = () =>
@@ -499,12 +513,7 @@ export default function Customer() {
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
-            <button
-              onClick={() => navigate("/portal")}
-              className="brand-link hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
-            >
-              Boba House
-            </button>
+            <span className="brand-link">Boba House</span>
             <p className="topbar-tagline">{translatedUI.tagline}</p>
           </div>
           {weather && (
@@ -743,7 +752,7 @@ export default function Customer() {
             <div className="mb-5">
               <div
                 className="grid gap-2 w-full"
-                style={{ gridTemplateColumns: `repeat(${Math.max(translatedCategories.length, 1)}, minmax(0, 1fr))` }}
+                style={{ gridTemplateColumns: `repeat(${translatedCategories.length + 1}, minmax(0, 1fr))` }}
               >
                 {translatedCategories.map((cat, i) => (
                   <button
@@ -756,39 +765,143 @@ export default function Customer() {
                     {cat}
                   </button>
                 ))}
+                <button
+                  onClick={() => { setActiveCategory(translatedCategories.length); setShowCart(false); }}
+                  aria-pressed={activeCategory === translatedCategories.length}
+                  className={`px-3 py-2.5 rounded-lg text-sm font-semibold text-center transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500
+                    ${activeCategory === translatedCategories.length ? "bg-purple-600 text-white shadow-sm" : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  Surprise Me
+                </button>
               </div>
             </div>
 
-            <div className="mb-4">
-              <h3 className="text-base font-semibold text-slate-900">{translatedCurrentCategory}</h3>
-              <p className="section-description">{translatedUI.availableItems}</p>
-            </div>
-
-            <div className="grid grid-cols-4 gap-3">
-              {items
-                .filter(item => !item.allergens.some(a => blockedAllergens.includes(a)))
-                .map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => openItem(item)}
-                    className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
-                  >
-                    <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
-                    {item.allergens.length > 0 && (
-                      <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
-                        {item.allergens.map(a => ALLERGEN_ICONS[a]).join(" ")}
-                      </p>
-                    )}
-                  </button>
-                ))}
-            </div>
-            {items.filter(item => !item.allergens.some(a => blockedAllergens.includes(a))).length === 0 && (
-              <p className="text-sm text-slate-500 py-8 text-center">
-                {items.length === 0
-                  ? translatedUI.noItems
-                  : translatedUI.allItemsFiltered}
-              </p>
+            {activeCategory === translatedCategories.length ? (
+              <div>
+                <div className="mb-5 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                  <p className="text-sm font-semibold text-purple-800 mb-3">Exclude allergens from your surprise:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_ALLERGENS.map(allergen => {
+                      const blocked = surpriseExcluded.includes(allergen);
+                      return (
+                        <button
+                          key={allergen}
+                          onClick={() => setSurpriseExcluded(prev =>
+                            blocked ? prev.filter(a => a !== allergen) : [...prev, allergen]
+                          )}
+                          aria-pressed={blocked}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500
+                            ${blocked ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-purple-300 text-purple-800 hover:bg-purple-100"}`}
+                        >
+                          {ALLERGEN_ICONS[allergen]} {allergen.replace("-", " ")}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSurpriseResult(generateSurprise(
+                          Object.entries(menuItems)
+                            .filter(([cat]) => !["Coffee", "Seasonal", "Specialty"].includes(cat))
+                            .flatMap(([, items]) => items),
+                          surpriseExcluded
+                        ))}
+                  className="primary-btn w-full py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                >
+                  Surprise Me!
+                </button>
+                {surpriseResult && (() => {
+                  const r = surpriseResult;
+                  const sizeUpcharge = SIZES.find(s => s.value === r.size)?.upcharge ?? 0;
+                  const totalPrice = parseFloat((r.item.price + sizeUpcharge + r.toppings.reduce((s, t) => s + t.price, 0)).toFixed(2));
+                  return (
+                    <div className="section-card p-5 border-purple-300 bg-purple-50">
+                      <h3 className="text-lg font-bold text-slate-900 mb-0.5">{r.item.name}</h3>
+                      <p className="text-slate-500 text-sm mb-4">${totalPrice.toFixed(2)}</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm mb-5">
+                        <dt className="text-slate-500">Size</dt>
+                        <dd className="text-slate-800 font-medium">{r.size} ({SIZES.find(s => s.value === r.size)?.oz})</dd>
+                        <dt className="text-slate-500">Sweetness</dt>
+                        <dd className="text-slate-800 font-medium">{r.sweetness}%</dd>
+                        <dt className="text-slate-500">Ice</dt>
+                        <dd className="text-slate-800 font-medium">{r.iceLevel}</dd>
+                        <dt className="text-slate-500">Toppings</dt>
+                        <dd className="text-slate-800 font-medium">{r.toppings.length > 0 ? r.toppings.map(t => t.name).join(", ") : "None"}</dd>
+                      </dl>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => {
+                            const toppingIds = r.toppings.map(t => t.id).sort().join(",");
+                            const milkType   = r.item.hasMilk ? "Whole Milk" : "No Milk";
+                            const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-cold-${r.sweetness}-${toppingIds}`;
+                            const sizedPrice = parseFloat((r.item.price + sizeUpcharge).toFixed(2));
+                            const newItem: CartItem = {
+                              cartKey: key, id: r.item.id, name: r.item.name,
+                              basePrice: r.item.price, price: sizedPrice + r.toppings.reduce((s, t) => s + t.price, 0),
+                              qty: 1, size: r.size, milkType, iceLevel: r.iceLevel, toppings: r.toppings,
+                              temperature: r.item.hasTemperature ? "cold" : "",
+                              sweetness: r.sweetness,
+                            };
+                            setCart(prev => {
+                              const existing = prev.find(o => o.cartKey === key);
+                              if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+                              return [...prev, newItem];
+                            });
+                            setSurpriseResult(null);
+                          }}
+                          className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        >
+                          Add to Cart
+                        </button>
+                        <button
+                          onClick={() => setSurpriseResult(generateSurprise(
+                          Object.entries(menuItems)
+                            .filter(([cat]) => !["Coffee", "Seasonal", "Specialty"].includes(cat))
+                            .flatMap(([, items]) => items),
+                          surpriseExcluded
+                        ))}
+                          className="secondary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold text-slate-900">{translatedCurrentCategory}</h3>
+                  <p className="section-description">{translatedUI.availableItems}</p>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  {items
+                    .filter(item => !item.allergens.some(a => blockedAllergens.includes(a)))
+                    .map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => openItem(item)}
+                        className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                      >
+                        <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                        <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                        {item.allergens.length > 0 && (
+                          <p className="mt-2 text-base leading-none" aria-label={`Contains: ${item.allergens.join(", ")}`}>
+                            {item.allergens.map(a => ALLERGEN_ICONS[a]).join(" ")}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                </div>
+                {items.filter(item => !item.allergens.some(a => blockedAllergens.includes(a))).length === 0 && (
+                  <p className="text-sm text-slate-500 py-8 text-center">
+                    {items.length === 0
+                      ? translatedUI.noItems
+                      : translatedUI.allItemsFiltered}
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
