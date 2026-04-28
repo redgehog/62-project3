@@ -39,4 +39,24 @@ pool.query(`
   ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS pin text
 `).catch(console.error);
 
+pool.query(`UPDATE "Item" SET is_active = false WHERE LOWER(category) = 'poo'`)
+  .catch(console.error);
+
+pool.query(`
+  INSERT INTO "Item" (item_id, name, category, price, is_active, milk, ice, sugar, toppings, is_seasonal, quantity, min_quantity)
+  SELECT gen_random_uuid(), v.name, 'Coffee', v.price, true, v.milk, 0, 0.0, '{}', false, 100, 0
+  FROM (VALUES
+    ('Espresso',               3.00::numeric, ''),
+    ('Americano',              3.50::numeric, ''),
+    ('Cold Brew',              4.50::numeric, ''),
+    ('Latte',                  4.50::numeric, 'Whole Milk'),
+    ('Cappuccino',             4.50::numeric, 'Whole Milk'),
+    ('Iced Latte',             5.00::numeric, 'Whole Milk'),
+    ('Vietnamese Iced Coffee', 4.50::numeric, 'Whole Milk')
+  ) AS v(name, price, milk)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM "Item" WHERE LOWER(category) = 'coffee'
+  )
+`).catch(console.error);
+
 export default pool;

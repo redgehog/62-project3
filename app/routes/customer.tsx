@@ -934,7 +934,7 @@ export default function Customer() {
                       key={topping.id}
                       onClick={() => toggleTopping(topping.id)}
                       aria-pressed={selectedToppings.includes(topping.id)}
-                      className={`py-2 px-3 text-xs font-medium rounded-lg border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      className={`py-2 px-3 text-xs font-medium rounded-lg border text-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${selectedToppings.includes(topping.id)
                           ? "bg-indigo-600 border-indigo-600 text-white"
                           : hasBlocked
@@ -943,10 +943,7 @@ export default function Customer() {
                         }`}
                     >
                       <span>{topping.name}</span>
-                      {topping.allergens.length > 0 && (
-                        <span className="ml-1">{topping.allergens.map(a => ALLERGEN_ICONS[a]).join("")}</span>
-                      )}
-                      {hasBlocked && <span className="block text-amber-600 font-normal" style={{ fontSize: "10px" }}>{translatedUI.containsAllergen}</span>}
+                      {hasBlocked && <span className="block text-amber-600 font-normal" style={{fontSize:"10px"}}>contains your allergen</span>}
                     </button>
                   );
                 })}

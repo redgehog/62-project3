@@ -6,7 +6,7 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Menu Board — Boba House" }];
 }
 
-const COLUMN_ORDER = ["Milk Tea", "Fruit Tea", "Brewed Tea", "Specialty", "Seasonal"];
+const COLUMN_ORDER = ["Milk Tea", "Fruit Tea", "Brewed Tea", "Coffee", "Specialty", "Seasonal"];
 
 const TOPPINGS = [
   { name: "Boba",         price: 0.75 },
@@ -21,7 +21,6 @@ export async function loader() {
             COALESCE(is_seasonal, false) AS "isSeasonal"
      FROM "Item"
      WHERE is_active = true
-       AND LOWER(category) != 'poo'
      ORDER BY category, name`
   );
 
