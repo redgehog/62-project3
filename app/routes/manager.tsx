@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from "react";
-import { Link, useLoaderData, useNavigate, useFetcher } from "react-router";
+import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/manager";
 import pool from "../db.server";
 import { requireSignedIn } from "../clerk-auth.server";
@@ -355,9 +355,7 @@ export default function Manager() {
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
-            <Link to="/portal" className="brand-link hover:text-slate-300 transition-colors">
-              Boba House
-            </Link>
+            <span className="brand-link">Boba House</span>
             <p className="topbar-tagline">Shop Operations Suite</p>
           </div>
           <span className="topbar-chip">Manager Console</span>

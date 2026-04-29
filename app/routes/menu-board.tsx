@@ -1,4 +1,4 @@
-import { Link, useLoaderData } from "react-router";
+import { useLoaderData } from "react-router";
 import type { Route } from "./+types/menu-board";
 import pool from "../db.server";
 
@@ -64,9 +64,7 @@ export default function MenuBoard() {
     <div className="h-screen flex flex-col bg-slate-900">
       {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-8 py-5 flex items-center justify-between shrink-0">
-        <Link to="/portal" className="text-white text-3xl font-extrabold tracking-wide hover:text-slate-200 transition-colors">
-          Boba House
-        </Link>
+        <h1 className="text-white text-3xl font-extrabold tracking-wide">Boba House</h1>
         <span className="text-slate-300 text-sm font-medium uppercase tracking-widest">Menu</span>
       </header>
 
