@@ -86,6 +86,15 @@ export function TTSWidget() {
   const { speak, stop, isSpeaking } = ctx;
   const highContrast      = hcCtx?.highContrast ?? false;
   const toggleHighContrast = hcCtx?.toggleHighContrast ?? (() => {});
+  const uiScale = hcCtx?.uiScale ?? "normal";
+  const setUiScale = hcCtx?.setUiScale ?? (() => {});
+  const applyUiScale = (scale: "normal" | "large" | "xlarge") => {
+    setUiScale(scale);
+    // Fallback so the control still responds immediately if context updates lag.
+    const fontSizeByScale = { normal: "16px", large: "18px", xlarge: "20px" } as const;
+    document.documentElement.style.fontSize = fontSizeByScale[scale];
+    localStorage.setItem("ui-scale", scale);
+  };
 
   return (
     <div
@@ -104,6 +113,41 @@ export function TTSWidget() {
       >
         <span aria-hidden="true">◑</span> {highContrast ? "Normal" : "High Contrast"}
       </button>
+      <div className="flex h-10 items-stretch overflow-hidden rounded-full shadow-lg border border-slate-300 bg-white pointer-events-auto">
+        <button
+          type="button"
+          onClick={() => applyUiScale("normal")}
+          aria-pressed={uiScale === "normal"}
+          aria-label="Set display size to normal"
+          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
+            uiScale === "normal" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          A-
+        </button>
+        <button
+          type="button"
+          onClick={() => applyUiScale("large")}
+          aria-pressed={uiScale === "large"}
+          aria-label="Set display size to large"
+          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset border-x border-slate-300 ${
+            uiScale === "large" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          A
+        </button>
+        <button
+          type="button"
+          onClick={() => applyUiScale("xlarge")}
+          aria-pressed={uiScale === "xlarge"}
+          aria-label="Set display size to extra large"
+          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-base font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
+            uiScale === "xlarge" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          A+
+        </button>
+      </div>
       {isSpeaking ? (
         <button
           onClick={stop}
