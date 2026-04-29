@@ -59,6 +59,11 @@ interface CartItem {
   toppings:  Topping[];
 }
 
+interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
 const normalizePhone = (p: string) => p.replace(/\D/g, "");
 
 export async function loader() {
@@ -101,6 +106,26 @@ export async function loader() {
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
+
+  if (intent === "ai-chat") {
+    const message = String(formData.get("message") || "").trim();
+    if (!message) return { ok: false as const, error: "Message required" };
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return { ok: false as const, error: "AI chat is not configured yet." };
+
+    const { GoogleGenAI } = await import("@google/genai");
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      contents: message,
+      config: { maxOutputTokens: 300 },
+    });
+    return {
+      ok: true as const,
+      reply: response.text?.trim() || "I could not generate a response. Please try again.",
+    };
+  }
 
   if (intent === "lookup-customer") {
     const phone = normalizePhone(String(formData.get("phone") || ""));
@@ -282,6 +307,12 @@ export default function Customer() {
   const [iceLevel, setIceLevel]                 = useState("Regular");
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [weather, setWeather] = useState<{ temp_f: number; condition: string } | null>(null);
+  const chatFetcher = useFetcher<typeof action>();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { role: "assistant", text: "Hi! I can help with menu questions and ordering." },
+  ]);
 
   // Fetch weather on mount, refresh every 10 minutes
   useEffect(() => {
@@ -350,6 +381,18 @@ export default function Customer() {
   }, [language, categories, menuItems]);
 
   useEffect(() => {
+    const data = chatFetcher.data;
+    if (!data || chatFetcher.state !== "idle") return;
+    if ("reply" in data && data.reply) {
+      setChatMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
+      return;
+    }
+    if ("error" in data && data.error) {
+      setChatMessages((prev) => [...prev, { role: "assistant", text: `Sorry, ${data.error}` }]);
+    }
+  }, [chatFetcher.state, chatFetcher.data]);
+
+  useEffect(() => {
     if (!selectedItem) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") closePopup();
@@ -412,6 +455,17 @@ export default function Customer() {
     const max100 = Math.floor((availablePoints - max300 * 300) / 100);
     setRedeem300(max300);
     setRedeem100(max100);
+  };
+
+  const sendChatMessage = () => {
+    const message = chatInput.trim();
+    if (!message || chatFetcher.state !== "idle") return;
+    setChatMessages((prev) => [...prev, { role: "user", text: message }]);
+    setChatInput("");
+    chatFetcher.submit(
+      { intent: "ai-chat", message },
+      { method: "post" }
+    );
   };
 
   return (
@@ -713,6 +767,78 @@ export default function Customer() {
       <footer className="soft-footer px-6 py-1.5 shrink-0">
         <p className="text-xs">Customer kiosk — tap an item to customize and add to your order</p>
       </footer>
+
+      {/* AI chat launcher + popup */}
+      <div className="fixed right-5 bottom-5 z-40">
+        {chatOpen ? (
+          <div className="w-[340px] max-w-[90vw] rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+            <div className="bg-indigo-600 text-white px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">Boba Assistant</p>
+                <p className="text-[11px] text-indigo-100">Quick menu help</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                className="text-indigo-100 hover:text-white text-lg leading-none"
+                aria-label="Close chat"
+              >
+                ×
+              </button>
+            </div>
+            <div className="h-72 overflow-y-auto bg-slate-50 px-3 py-3 space-y-2">
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={`${msg.role}-${idx}`}
+                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                    msg.role === "user"
+                      ? "ml-auto bg-indigo-600 text-white"
+                      : "mr-auto bg-white border border-slate-200 text-slate-700"
+                  }`}
+                >
+                  {msg.text}
+                </div>
+              ))}
+              {chatFetcher.state !== "idle" && (
+                <div className="mr-auto bg-white border border-slate-200 text-slate-500 rounded-2xl px-3 py-2 text-sm">
+                  Thinking...
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-200 p-3 bg-white">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") sendChatMessage();
+                  }}
+                  placeholder="Ask about drinks, toppings, allergens..."
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={sendChatMessage}
+                  disabled={!chatInput.trim() || chatFetcher.state !== "idle"}
+                  className="primary-btn px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            aria-label="Open AI chat"
+            className="h-14 w-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-2xl"
+          >
+            ✦
+          </button>
+        )}
+      </div>
 
       {/* Customization popup */}
       {selectedItem && (
