@@ -1,6 +1,6 @@
 // Customer ordering kiosk
 import { useState, useEffect, useContext } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { Link, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
 import type { PoolClient } from "pg";
@@ -562,7 +562,9 @@ export default function Customer() {
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
-            <span className="brand-link">Boba House</span>
+            <Link to="/portal" className="brand-link hover:text-slate-300 transition-colors">
+              Boba House
+            </Link>
             <p className="topbar-tagline">{translatedUI.tagline}</p>
           </div>
           {weather && (
