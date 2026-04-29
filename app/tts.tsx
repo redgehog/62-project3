@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
-import { TranslationContext } from "./root";
+import { TranslationContext, HighContrastContext } from "./root";
 
 const TTS_HIDDEN_ROUTES = ["/kitchen", "/menu-board"];
 
@@ -79,17 +79,31 @@ export function TTSProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function TTSWidget() {
-  const ctx      = useContext(TTSContext);
+  const ctx    = useContext(TTSContext);
+  const hcCtx  = useContext(HighContrastContext);
   const location = useLocation();
   if (!ctx || TTS_HIDDEN_ROUTES.includes(location.pathname)) return null;
   const { speak, stop, isSpeaking } = ctx;
+  const highContrast      = hcCtx?.highContrast ?? false;
+  const toggleHighContrast = hcCtx?.toggleHighContrast ?? (() => {});
 
   return (
     <div
       className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2"
       data-tts-skip
-      aria-label="Text to speech controls"
+      aria-label="Accessibility controls"
     >
+      <button
+        onClick={toggleHighContrast}
+        aria-pressed={highContrast}
+        aria-label={highContrast ? "Disable high contrast mode" : "Enable high contrast mode"}
+        className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2
+          ${highContrast
+            ? "bg-yellow-400 hover:bg-yellow-300 text-black focus:ring-yellow-400"
+            : "bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500"}`}
+      >
+        <span aria-hidden="true">◑</span> {highContrast ? "Normal" : "High Contrast"}
+      </button>
       {isSpeaking ? (
         <button
           onClick={stop}
