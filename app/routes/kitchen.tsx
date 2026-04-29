@@ -136,12 +136,7 @@ export default function Kitchen() {
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
-            <button
-              onClick={() => navigate("/portal")}
-              className="brand-link hover:text-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded"
-            >
-              Boba House
-            </button>
+            <span className="brand-link">Boba House</span>
             <p className="topbar-tagline">Shop Operations Suite</p>
           </div>
           <span className="topbar-chip">Kitchen Display</span>

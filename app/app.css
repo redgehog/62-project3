@@ -35,9 +35,6 @@ body {
   letter-spacing: 0.025em;
 }
 
-.brand-link:hover {
-  color: #bfdbfe;
-}
 
 .topbar-row {
   width: min(1200px, 100%);
@@ -179,4 +176,122 @@ body {
 
 .rounded-2xl {
   border-radius: 0.85rem;
+}
+
+/* ── High-contrast accessibility mode ───────────────────────────────────── */
+html.high-contrast,
+html.high-contrast body {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+html.high-contrast .app-shell {
+  background: #000 !important;
+}
+
+html.high-contrast .app-header {
+  background: #000 !important;
+  border-bottom: 2px solid #fff !important;
+}
+
+html.high-contrast .brand-link       { color: #ffff00 !important; }
+html.high-contrast .topbar-tagline   { color: #fff !important; }
+html.high-contrast .topbar-chip      { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+
+html.high-contrast .section-card,
+html.high-contrast .surface-card {
+  background: #000 !important;
+  border: 2px solid #fff !important;
+  color: #fff !important;
+}
+
+html.high-contrast .section-title       { color: #fff !important; }
+html.high-contrast .section-description { color: #ccc !important; }
+
+html.high-contrast .primary-btn {
+  background: #ffff00 !important;
+  color: #000 !important;
+  border: 2px solid #fff !important;
+}
+html.high-contrast .secondary-btn {
+  background: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+html.high-contrast .danger-btn {
+  background: #ff0000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+html.high-contrast .field-input {
+  background: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+html.high-contrast .soft-footer {
+  background: #000 !important;
+  border-top: 2px solid #fff !important;
+  color: #fff !important;
+}
+
+/* Generic text/bg Tailwind utilities */
+html.high-contrast [class*="text-slate-"],
+html.high-contrast [class*="text-gray-"],
+html.high-contrast [class*="text-zinc-"]  { color: #fff !important; }
+
+html.high-contrast [class*="text-indigo-"],
+html.high-contrast [class*="text-blue-"]  { color: #7eb8ff !important; }
+
+html.high-contrast [class*="text-emerald-"],
+html.high-contrast [class*="text-green-"] { color: #7fff7f !important; }
+
+html.high-contrast [class*="text-red-"],
+html.high-contrast [class*="text-rose-"]  { color: #ff9090 !important; }
+
+html.high-contrast [class*="text-amber-"],
+html.high-contrast [class*="text-yellow-"]{ color: #ffff00 !important; }
+
+html.high-contrast [class*="text-purple-"]{ color: #d4aaff !important; }
+
+html.high-contrast [class*="bg-white"],
+html.high-contrast [class*="bg-slate-"],
+html.high-contrast [class*="bg-gray-"]    { background-color: #000 !important; color: #fff !important; }
+
+html.high-contrast [class*="bg-indigo-"],
+html.high-contrast [class*="bg-blue-"]    { background-color: #00008b !important; color: #fff !important; }
+
+html.high-contrast [class*="bg-green-"],
+html.high-contrast [class*="bg-emerald-"] { background-color: #004d00 !important; color: #fff !important; }
+
+html.high-contrast [class*="bg-red-"],
+html.high-contrast [class*="bg-rose-"]    { background-color: #8b0000 !important; color: #fff !important; }
+
+html.high-contrast [class*="bg-amber-"],
+html.high-contrast [class*="bg-yellow-"]  { background-color: #665200 !important; color: #fff !important; }
+
+html.high-contrast [class*="bg-purple-"]  { background-color: #3b0066 !important; color: #fff !important; }
+
+html.high-contrast [class*="border-slate-"],
+html.high-contrast [class*="border-gray-"] { border-color: #555 !important; }
+
+/* Form controls not using .field-input */
+html.high-contrast input,
+html.high-contrast select,
+html.high-contrast textarea {
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+
+/* Table headers */
+html.high-contrast thead tr { background-color: #111 !important; }
+html.high-contrast thead th { color: #fff !important; }
+
+/* Focus rings — make them bright yellow for maximum visibility */
+html.high-contrast *:focus {
+  outline: 3px solid #ffff00 !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
 }

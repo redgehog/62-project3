@@ -6,10 +6,11 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
-import { createContext, useState } from "react";
+import { createContext, useEffect, useState } from "react";
 import { ClerkProvider } from "@clerk/react-router";
 import { clerkMiddleware, rootAuthLoader } from "@clerk/react-router/server";
 import type { LanguageCode } from "./translate";
+import { TTSProvider, TTSWidget } from "./tts";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -23,6 +24,13 @@ type TranslationContextValue = {
 };
 
 export const TranslationContext = createContext<TranslationContextValue | null>(null);
+
+type HighContrastContextValue = {
+  highContrast: boolean;
+  toggleHighContrast: () => void;
+};
+
+export const HighContrastContext = createContext<HighContrastContextValue | null>(null);
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -45,6 +53,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
+        {/* Reads localStorage before first paint to avoid a flash when high-contrast was previously enabled */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(localStorage.getItem('high-contrast')==='true')document.documentElement.classList.add('high-contrast');}catch(e){}})();` }} />
       </head>
       <body>
         {children}
@@ -57,11 +67,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function App({ loaderData }: Route.ComponentProps) {
   const [language, setLanguage] = useState<LanguageCode>("en");
+  const [highContrast, setHighContrast] = useState(false);
+
+  // Sync initial value from localStorage (after hydration)
+  useEffect(() => {
+    setHighContrast(localStorage.getItem("high-contrast") === "true");
+  }, []);
+
+  // Apply/remove class and persist preference whenever it changes
+  useEffect(() => {
+    document.documentElement.classList.toggle("high-contrast", highContrast);
+    localStorage.setItem("high-contrast", String(highContrast));
+  }, [highContrast]);
+
+  const toggleHighContrast = () => setHighContrast(v => !v);
 
   return (
     <ClerkProvider loaderData={loaderData}>
       <TranslationContext.Provider value={{ language, setLanguage }}>
-        <Outlet />
+        <HighContrastContext.Provider value={{ highContrast, toggleHighContrast }}>
+          <TTSProvider>
+            <Outlet />
+            <TTSWidget />
+          </TTSProvider>
+        </HighContrastContext.Provider>
       </TranslationContext.Provider>
     </ClerkProvider>
   );
