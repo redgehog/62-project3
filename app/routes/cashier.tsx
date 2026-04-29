@@ -172,9 +172,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   const client = await pool.connect();
   let orderId: string;
+  let placedOrderNumber: number | undefined;
   try {
     await client.query("BEGIN");
     const orderNumber = await getNextOrderNumber(client);
+    placedOrderNumber = orderNumber;
     const { rows } = await client.query(
       `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
        VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
@@ -214,7 +216,11 @@ export async function action({ request }: Route.ActionArgs) {
     client.release();
   }
 
-  return { ok: true };
+  return {
+    ok: true as const,
+    orderNumber: placedOrderNumber ?? 0,
+    total: discountedTotal.toFixed(2),
+  };
 }
 
 async function getNextOrderNumber(client: PoolClient) {
@@ -330,9 +336,21 @@ export default function Cashier() {
   const [redeem100, setRedeem100]               = useState(0);
   const [surpriseExcluded, setSurpriseExcluded] = useState<string[]>([]);
   const [surpriseResult,   setSurpriseResult]   = useState<ReturnType<typeof generateSurprise>>(null);
+  const [orderConfirmation, setOrderConfirmation] = useState<{
+    orderNumber: number;
+    total: string;
+  } | null>(null);
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
+    if (
+      fetcher.state === "idle"
+      && fetcher.data
+      && "ok" in fetcher.data
+      && fetcher.data.ok
+      && "orderNumber" in fetcher.data
+    ) {
+      const d = fetcher.data as { ok: true; orderNumber: number; total: string };
+      setOrderConfirmation({ orderNumber: d.orderNumber, total: d.total });
       setOrderItems([]);
       setCustomerName("");
       setCustomerPhone("");
@@ -796,6 +814,40 @@ export default function Cashier() {
       <footer className="soft-footer px-6 py-1.5">
         <p className="text-xs">Cashier — click an item to customize and add to order</p>
       </footer>
+
+      {orderConfirmation && (
+        <div
+          className="fixed inset-0 bg-black/55 flex items-center justify-center z-60 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cashier-order-confirm"
+        >
+          <div className="surface-card max-w-md w-full p-8 text-center space-y-4">
+            <p id="cashier-order-confirm" className="text-2xl font-bold text-slate-900">
+              Order placed
+            </p>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 py-6 px-4">
+              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">
+                Order number
+              </p>
+              <p className="text-4xl font-black text-emerald-900 mt-1 tabular-nums tracking-tight">
+                #{orderConfirmation.orderNumber}
+              </p>
+              <p className="text-sm text-slate-600 mt-3">
+                Total:{" "}
+                <span className="font-semibold text-slate-900">${orderConfirmation.total}</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              className="primary-btn w-full py-3"
+              onClick={() => setOrderConfirmation(null)}
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Customization modal */}
       {selectedItem && (

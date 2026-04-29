@@ -1,5 +1,5 @@
 import { useEffect, useState, useContext } from "react";
-import { useLoaderData, useNavigate, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import type { Route } from "./+types/kitchen";
 import pool from "../db.server";
 import { translateText } from "../translate";
@@ -9,12 +9,34 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Kitchen — Boba House" }];
 }
 
+interface KitchenLine {
+  name: string;
+  qty: number;
+  size?: string | null;
+  ice?: string | null;
+  milk?: string | null;
+  temp?: string | null;
+  sweet?: number | null;
+  toppings?: string | null;
+}
+
 interface KitchenOrder {
   id:    string;
   orderNumber: number;
   customerName: string;
   date:  string;
-  items: { name: string; qty: number }[];
+  items: KitchenLine[];
+}
+
+function lineDetailText(line: KitchenLine): string | null {
+  const parts: string[] = [];
+  if (line.size) parts.push(line.size);
+  if (line.ice) parts.push(`Ice ${line.ice}`);
+  if (line.milk && line.milk !== "No Milk") parts.push(line.milk);
+  if (line.temp) parts.push(line.temp.toLowerCase() === "hot" ? "Hot" : "Cold");
+  if (line.sweet != null) parts.push(`${line.sweet}% sugar`);
+  if (line.toppings && line.toppings.trim()) parts.push(line.toppings);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 export async function loader() {
@@ -23,7 +45,18 @@ export async function loader() {
             o.order_number::int AS "orderNumber",
             COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-in Customer') AS "customerName",
             to_char(o.date AT TIME ZONE 'America/Chicago', 'HH12:MI AM') AS date,
-            json_agg(json_build_object('name', i.name, 'qty', oi.quantity) ORDER BY i.name) AS items
+            json_agg(
+              json_build_object(
+                'name', i.name,
+                'qty', oi.quantity,
+                'size', oi.size,
+                'ice', oi.ice_level,
+                'milk', oi.milk_type,
+                'temp', oi.temperature,
+                'sweet', oi.sweetness,
+                'toppings', COALESCE(array_to_string(oi.toppings, ', '), '')
+              ) ORDER BY i.name
+            ) AS items
      FROM "Order" o
      JOIN "Order_Item" oi ON oi.order_id = o.order_id
      JOIN "Item" i ON i.item_id = oi.item_id
@@ -77,12 +110,20 @@ function OrderCard({ order }: { order: KitchenOrder }) {
       </div>
       <p className="px-4 pt-3 text-xs font-medium text-slate-500">Customer: {order.customerName}</p>
       <ul className="flex-1 px-4 py-3 space-y-1.5" role="list">
-        {order.items.map((item, i) => (
-          <li key={i} className="text-sm text-slate-700 flex items-baseline gap-1.5">
-            <span className="font-semibold text-slate-900">×{item.qty}</span>
-            {item.name}
-          </li>
-        ))}
+        {order.items.map((item, i) => {
+          const details = lineDetailText(item);
+          return (
+            <li key={i} className="text-sm text-slate-700">
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-semibold text-slate-900">×{item.qty}</span>
+                <span className="font-medium">{item.name}</span>
+              </div>
+              {details && (
+                <p className="text-xs text-slate-500 mt-1 pl-5 leading-snug">{details}</p>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <div className="px-4 pb-4">
         <fetcher.Form method="post">
@@ -101,8 +142,8 @@ function OrderCard({ order }: { order: KitchenOrder }) {
 }
 
 export default function Kitchen() {
-  const navigate = useNavigate();
   const { orders } = useLoaderData<typeof loader>();
+  const revalidator = useRevalidator();
 
   const translationContext = useContext(TranslationContext);
   const language = translationContext?.language ?? "en";
@@ -130,6 +171,11 @@ export default function Kitchen() {
       setTranslatedUI({ activeQueue, trackPending, noPending });
     });
   }, [language]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => revalidator.revalidate(), 12000);
+    return () => window.clearInterval(t);
+  }, [revalidator]);
 
   return (
     <div className="h-screen flex flex-col app-shell">

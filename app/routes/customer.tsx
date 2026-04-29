@@ -95,6 +95,12 @@ const UI_STRINGS = {
   addToCart:          "Add to Cart",
   updateItem:         "Update Item",
   containsAllergen:   "contains your allergen",
+  orderThankYou:      "Thank you!",
+  orderReceived:    "Your order was placed.",
+  orderNumberLabel:   "Order number",
+  orderTotalLabel:    "Total due",
+  payAtCounter:       "Please pay at the counter when your drink is ready.",
+  startNewOrder:      "Continue ordering",
 } as const;
 
 interface CartItem {
@@ -248,9 +254,11 @@ export async function action({ request }: Route.ActionArgs) {
   const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
 
   const client = await pool.connect();
+  let placedOrderNumber: number | undefined;
   try {
     await client.query("BEGIN");
     const orderNumber = await getNextOrderNumber(client);
+    placedOrderNumber = orderNumber;
     const { rows } = await client.query(
       `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
        VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
@@ -290,7 +298,11 @@ export async function action({ request }: Route.ActionArgs) {
     client.release();
   }
 
-  return { ok: true };
+  return {
+    ok: true as const,
+    orderNumber: placedOrderNumber ?? 0,
+    total: discountedTotal.toFixed(2),
+  };
 }
 
 async function getNextOrderNumber(client: PoolClient) {
@@ -339,9 +351,21 @@ export default function Customer() {
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
   const [redeem300, setRedeem300]               = useState(0);
   const [redeem100, setRedeem100]               = useState(0);
+  const [orderConfirmation, setOrderConfirmation] = useState<{
+    orderNumber: number;
+    total: string;
+  } | null>(null);
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
+    if (
+      fetcher.state === "idle"
+      && fetcher.data
+      && "ok" in fetcher.data
+      && fetcher.data.ok
+      && "orderNumber" in fetcher.data
+    ) {
+      const d = fetcher.data as { ok: true; orderNumber: number; total: string };
+      setOrderConfirmation({ orderNumber: d.orderNumber, total: d.total });
       setCart([]);
       setShowCart(false);
       setCustomerPhone("");
@@ -959,6 +983,42 @@ export default function Customer() {
       <footer className="soft-footer px-6 py-1.5 shrink-0">
         <p className="text-xs">{translatedUI.footer}</p>
       </footer>
+
+      {orderConfirmation && (
+        <div
+          className="fixed inset-0 bg-black/55 flex items-center justify-center z-60 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="order-confirm-title"
+        >
+          <div className="surface-card max-w-md w-full p-8 text-center space-y-4">
+            <p id="order-confirm-title" className="text-2xl font-bold text-slate-900">
+              {translatedUI.orderThankYou}
+            </p>
+            <p className="text-slate-600 text-sm">{translatedUI.orderReceived}</p>
+            <div className="rounded-xl bg-indigo-50 border border-indigo-200 py-6 px-4">
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">
+                {translatedUI.orderNumberLabel}
+              </p>
+              <p className="text-4xl font-black text-indigo-900 mt-1 tabular-nums tracking-tight">
+                #{orderConfirmation.orderNumber}
+              </p>
+              <p className="text-sm text-slate-600 mt-3">
+                {translatedUI.orderTotalLabel}:{" "}
+                <span className="font-semibold text-slate-900">${orderConfirmation.total}</span>
+              </p>
+            </div>
+            <p className="text-xs text-slate-500">{translatedUI.payAtCounter}</p>
+            <button
+              type="button"
+              className="primary-btn w-full py-3"
+              onClick={() => setOrderConfirmation(null)}
+            >
+              {translatedUI.startNewOrder}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* AI chat launcher + popup */}
       <div className="fixed right-5 bottom-5 z-40">
