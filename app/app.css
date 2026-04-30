@@ -70,6 +70,30 @@ body {
   font-weight: 600;
 }
 
+.navbar-select {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  background: rgba(15, 23, 42, 0.35);
+  color: #f1f5f9;
+  border-radius: 9999px;
+  padding: 0.35rem 2rem 0.35rem 0.8rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.navbar-select:hover {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.navbar-select:focus {
+  outline: none;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px #818cf8;
+}
+
 .app-subtitle {
   color: #cbd5e1;
   font-size: 0.875rem;
@@ -197,6 +221,7 @@ html.high-contrast .app-header {
 html.high-contrast .brand-link       { color: #ffff00 !important; }
 html.high-contrast .topbar-tagline   { color: #fff !important; }
 html.high-contrast .topbar-chip      { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+html.high-contrast .navbar-select    { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; box-shadow: none !important; }
 
 html.high-contrast .section-card,
 html.high-contrast .surface-card {
