@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation } from "react-router";
 import { TranslationContext, HighContrastContext } from "./root";
 
@@ -25,10 +26,7 @@ function getPageText(): string {
     document.querySelector<HTMLElement>('[role="main"]') ??
     document.body;
 
-  // Clone so we can strip hidden/decorative nodes without mutating the DOM
   const clone = region.cloneNode(true) as HTMLElement;
-
-  // Remove elements that shouldn't be read (scripts, styles, hidden items)
   clone.querySelectorAll("script, style, [aria-hidden='true'], [data-tts-skip]")
     .forEach(el => el.remove());
 
@@ -36,7 +34,6 @@ function getPageText(): string {
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  // Cap at ~4000 chars so synthesis doesn't run forever
   return text.slice(0, 4000);
 }
 
@@ -68,7 +65,6 @@ export function TTSProvider({ children }: { children: React.ReactNode }) {
     window.speechSynthesis.speak(utt);
   };
 
-  // Cancel on unmount
   useEffect(() => () => { window.speechSynthesis?.cancel(); }, []);
 
   return (
@@ -78,93 +74,136 @@ export function TTSProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+const LENS_SIZE = 400;
+const ZOOM = 2.2;
+
+function MagnifierLens({ mouseX, mouseY }: { mouseX: number; mouseY: number }) {
+  const cloneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const update = () => {
+      if (!cloneRef.current) return;
+      const bodyClone = document.body.cloneNode(true) as HTMLElement;
+      // Remove the lens itself from the clone to prevent infinite nesting
+      bodyClone.querySelectorAll("[data-magnifier-lens]").forEach(el => el.remove());
+      cloneRef.current.replaceChildren(...Array.from(bodyClone.childNodes));
+    };
+    update();
+    const id = setInterval(update, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  const R = LENS_SIZE / 2;
+
+  return createPortal(
+    <div
+      data-magnifier-lens
+      style={{
+        position:      "fixed",
+        left:          mouseX - R,
+        top:           mouseY - R,
+        width:         LENS_SIZE,
+        height:        LENS_SIZE,
+        borderRadius:  "50%",
+        overflow:      "hidden",
+        pointerEvents: "none",
+        zIndex:        10000,
+        border:        "3px solid rgba(0,0,0,0.45)",
+        boxShadow:     "0 4px 24px rgba(0,0,0,0.35)",
+      }}
+    >
+      <div
+        ref={cloneRef}
+        style={{
+          position:        "absolute",
+          top:             R - mouseY,
+          left:            R - mouseX,
+          width:           "100vw",
+          height:          "100vh",
+          transform:       `scale(${ZOOM})`,
+          transformOrigin: `${mouseX}px ${mouseY}px`,
+          pointerEvents:   "none",
+          background:      "white",
+        }}
+      />
+    </div>,
+    document.body
+  );
+}
+
 export function TTSWidget() {
   const ctx    = useContext(TTSContext);
   const hcCtx  = useContext(HighContrastContext);
   const location = useLocation();
+
+  const [magnifierOn, setMagnifierOn] = useState(false);
+  const [mousePos, setMousePos]       = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!magnifierOn) return;
+    const onMove = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
+    document.addEventListener("mousemove", onMove);
+    return () => document.removeEventListener("mousemove", onMove);
+  }, [magnifierOn]);
+
   if (!ctx || TTS_HIDDEN_ROUTES.includes(location.pathname)) return null;
+
   const { speak, stop, isSpeaking } = ctx;
-  const highContrast      = hcCtx?.highContrast ?? false;
+  const highContrast       = hcCtx?.highContrast ?? false;
   const toggleHighContrast = hcCtx?.toggleHighContrast ?? (() => {});
-  const uiScale = hcCtx?.uiScale ?? "normal";
-  const setUiScale = hcCtx?.setUiScale ?? (() => {});
-  const applyUiScale = (scale: "normal" | "large" | "xlarge") => {
-    setUiScale(scale);
-    // Fallback so the control still responds immediately if context updates lag.
-    const fontSizeByScale = { normal: "16px", large: "18px", xlarge: "20px" } as const;
-    document.documentElement.style.fontSize = fontSizeByScale[scale];
-    localStorage.setItem("ui-scale", scale);
-  };
 
   return (
-    <div
-      className="fixed bottom-5 left-5 z-50 flex flex-col items-start gap-2"
-      data-tts-skip
-      aria-label="Accessibility controls"
-    >
-      <button
-        onClick={toggleHighContrast}
-        aria-pressed={highContrast}
-        aria-label={highContrast ? "Disable high contrast mode" : "Enable high contrast mode"}
-        className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2
-          ${highContrast
-            ? "bg-yellow-400 hover:bg-yellow-300 text-black focus:ring-yellow-400"
-            : "bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500"}`}
+    <>
+      <div
+        className="fixed bottom-5 left-5 z-50 flex flex-col items-start gap-2"
+        data-tts-skip
+        aria-label="Accessibility controls"
       >
-        <span aria-hidden="true">◑</span> {highContrast ? "Normal" : "High Contrast"}
-      </button>
-      <div className="flex h-10 items-stretch overflow-hidden rounded-full shadow-lg border border-slate-300 bg-white pointer-events-auto">
+        <button
+          onClick={toggleHighContrast}
+          aria-pressed={highContrast}
+          aria-label={highContrast ? "Disable high contrast mode" : "Enable high contrast mode"}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2
+            ${highContrast
+              ? "bg-yellow-400 hover:bg-yellow-300 text-black focus:ring-yellow-400"
+              : "bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500"}`}
+        >
+          <span aria-hidden="true">◑</span> {highContrast ? "Normal" : "High Contrast"}
+        </button>
+
         <button
           type="button"
-          onClick={() => applyUiScale("normal")}
-          aria-pressed={uiScale === "normal"}
-          aria-label="Set display size to normal"
-          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
-            uiScale === "normal" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
-          }`}
+          onClick={() => setMagnifierOn(v => !v)}
+          aria-pressed={magnifierOn}
+          aria-label={magnifierOn ? "Disable magnifier" : "Enable magnifier"}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2
+            ${magnifierOn
+              ? "bg-indigo-600 hover:bg-indigo-500 text-white focus:ring-indigo-500"
+              : "bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500"}`}
         >
-          A-
+          <span aria-hidden="true">🔍</span> {magnifierOn ? "Magnifier On" : "Magnifier"}
         </button>
-        <button
-          type="button"
-          onClick={() => applyUiScale("large")}
-          aria-pressed={uiScale === "large"}
-          aria-label="Set display size to large"
-          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset border-x border-slate-300 ${
-            uiScale === "large" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          A
-        </button>
-        <button
-          type="button"
-          onClick={() => applyUiScale("xlarge")}
-          aria-pressed={uiScale === "xlarge"}
-          aria-label="Set display size to extra large"
-          className={`min-w-11 px-3 h-full inline-flex items-center justify-center leading-none text-base font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
-            uiScale === "xlarge" ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          A+
-        </button>
+
+        {isSpeaking ? (
+          <button
+            onClick={stop}
+            aria-label="Stop reading"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          >
+            <span aria-hidden="true">■</span> Stop
+          </button>
+        ) : (
+          <button
+            onClick={() => speak(getPageText())}
+            aria-label="Read page content aloud"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            <span aria-hidden="true">▶</span> Read Page
+          </button>
+        )}
       </div>
-      {isSpeaking ? (
-        <button
-          onClick={stop}
-          aria-label="Stop reading"
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-        >
-          <span aria-hidden="true">■</span> Stop
-        </button>
-      ) : (
-        <button
-          onClick={() => speak(getPageText())}
-          aria-label="Read page content aloud"
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-        >
-          <span aria-hidden="true">▶</span> Read Page
-        </button>
-      )}
-    </div>
+
+      {magnifierOn && <MagnifierLens mouseX={mousePos.x} mouseY={mousePos.y} />}
+    </>
   );
 }

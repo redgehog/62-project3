@@ -28,8 +28,6 @@ export const TranslationContext = createContext<TranslationContextValue | null>(
 type HighContrastContextValue = {
   highContrast: boolean;
   toggleHighContrast: () => void;
-  uiScale: "normal" | "large" | "xlarge";
-  setUiScale: (scale: "normal" | "large" | "xlarge") => void;
 };
 
 export const HighContrastContext = createContext<HighContrastContextValue | null>(null);
@@ -70,39 +68,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App({ loaderData }: Route.ComponentProps) {
   const [language, setLanguage] = useState<LanguageCode>("en");
   const [highContrast, setHighContrast] = useState(false);
-  const [uiScale, setUiScale] = useState<"normal" | "large" | "xlarge">("normal");
 
-  // Sync initial value from localStorage (after hydration)
   useEffect(() => {
     setHighContrast(localStorage.getItem("high-contrast") === "true");
-    const savedScale = localStorage.getItem("ui-scale");
-    if (savedScale === "normal" || savedScale === "large" || savedScale === "xlarge") {
-      setUiScale(savedScale);
-    }
   }, []);
 
-  // Apply/remove class and persist preference whenever it changes
   useEffect(() => {
     document.documentElement.classList.toggle("high-contrast", highContrast);
     localStorage.setItem("high-contrast", String(highContrast));
   }, [highContrast]);
-
-  useEffect(() => {
-    const fontSizeByScale = {
-      normal: "16px",
-      large: "18px",
-      xlarge: "20px",
-    } as const;
-    document.documentElement.style.fontSize = fontSizeByScale[uiScale];
-    localStorage.setItem("ui-scale", uiScale);
-  }, [uiScale]);
 
   const toggleHighContrast = () => setHighContrast(v => !v);
 
   return (
     <ClerkProvider loaderData={loaderData}>
       <TranslationContext.Provider value={{ language, setLanguage }}>
-        <HighContrastContext.Provider value={{ highContrast, toggleHighContrast, uiScale, setUiScale }}>
+        <HighContrastContext.Provider value={{ highContrast, toggleHighContrast }}>
           <TTSProvider>
             <Outlet />
             <TTSWidget />
