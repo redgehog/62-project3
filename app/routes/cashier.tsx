@@ -11,6 +11,7 @@ import {
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
 import { applyTax, TAX_RATE } from "../lib/pricing";
+import { useSpeechToText } from "../lib/useSpeechToText";
 import { qrCodeUrl } from "../lib/qr";
 
 export function meta({}: Route.MetaArgs) {
@@ -399,6 +400,7 @@ export default function Cashier() {
   const [appliedPromo, setAppliedPromo]         = useState<{ code: string; discountPct: number } | null>(null);
   const [promoError, setPromoError]             = useState<string | null>(null);
   const [customerName, setCustomerName]         = useState("");
+  const nameSpeech = useSpeechToText((t) => setCustomerName(t));
   const [customerPhone, setCustomerPhone]       = useState("");
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
   const [redeem300, setRedeem300]               = useState(0);
@@ -894,13 +896,26 @@ export default function Cashier() {
               <span className="mb-1 block text-xs font-medium">
                 {lookedUpCustomer === "not-found" ? "Customer Name (new member)" : "Customer Name"}
               </span>
-              <input
-                type="text"
-                value={customerName}
-                onChange={e => setCustomerName(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                placeholder="Enter customer name"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={e => setCustomerName(e.target.value)}
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  placeholder="Enter customer name"
+                />
+                {nameSpeech.supported && (
+                  <button type="button" onClick={nameSpeech.toggle}
+                    aria-label={nameSpeech.listening ? "Stop recording" : "Speak customer name"}
+                    className={`px-3 py-2 rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
+                      ${nameSpeech.listening ? "bg-red-100 text-red-600 animate-pulse" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                    🎤
+                  </button>
+                )}
+              </div>
+              {nameSpeech.listening && (
+                <p className="text-[10px] text-red-500 mt-1 animate-pulse">Listening…</p>
+              )}
             </label>
             {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
               <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
