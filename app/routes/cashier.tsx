@@ -737,6 +737,7 @@ export default function Cashier() {
                             qty: 1, size: r.size, milkType, iceLevel: r.iceLevel, toppings: r.toppings,
                             temperature: r.item.hasTemperature ? "iced" : "",
                             sweetness: r.sweetness,
+                            priceOverridden: false,
                           };
                           setOrderItems(prev => {
                             const existing = prev.find(o => o.cartKey === key);
