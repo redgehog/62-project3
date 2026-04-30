@@ -89,7 +89,7 @@ const UI_STRINGS = {
   availableItems:     "Available items in this category.",
   noItems:            "No items available in this category right now.",
   allItemsFiltered:   "All items in this category contain your filtered allergens.",
-  footer:             "Customer kiosk — tap an item to customize and add to your order",
+  footer:             "Tap any item to customize and add it to your order",
   contains:           "Contains",
   size:               "Size",
   sizeRegular:        "Regular",

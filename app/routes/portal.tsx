@@ -34,7 +34,7 @@ export default function Portal() {
         <div className="page-section">
           <div className="mb-6">
             <h2 className="section-title">Portal</h2>
-            <p className="section-description">Choose a workspace to manage daily operations.</p>
+            <p className="section-description">Select a workspace to get started.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             {PORTAL_LINKS.map(({ label, path, description }) => (
