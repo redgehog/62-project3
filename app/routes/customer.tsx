@@ -6,7 +6,7 @@ import pool from "../db.server";
 import type { PoolClient } from "pg";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 import { applyTax } from "../lib/pricing";
-import { qrCodeUrl, receiptQrData } from "../lib/qr";
+import { qrCodeUrl } from "../lib/qr";
 import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
@@ -135,7 +135,7 @@ interface ChatMessage {
 
 const normalizePhone = (p: string) => p.replace(/\D/g, "");
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price, milk,
             COALESCE(is_seasonal, false) AS "isSeasonal",
@@ -174,7 +174,7 @@ export async function loader() {
     }
   }
 
-  return { categories, menuItems };
+  return { categories, menuItems, baseUrl: new URL(request.url).origin };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -449,7 +449,7 @@ function generateSurprise(allItems: MenuItem[], excluded: string[]) {
 }
 
 export default function Customer() {
-  const { categories, menuItems } = useLoaderData<typeof loader>();
+  const { categories, menuItems, baseUrl } = useLoaderData<typeof loader>();
   const fetcher       = useFetcher<typeof action>();
   const lookupFetcher = useFetcher<typeof action>();
   const translationContext = useContext(TranslationContext);
@@ -1198,13 +1198,13 @@ export default function Customer() {
                     <p className="text-slate-500 text-sm mt-1">Order #{oaConfirmation.orderNumber} · ${oaConfirmation.total}</p>
                     <div className="mt-3 flex flex-col items-center gap-1">
                       <img
-                        src={qrCodeUrl(receiptQrData({ orderNumber: oaConfirmation.orderNumber, total: oaConfirmation.total, scheduledFor: formatOaTime(oaConfirmation.scheduledFor) }), 140)}
-                        alt="Order receipt QR code"
+                        src={qrCodeUrl(`${baseUrl}/order-status?n=${oaConfirmation.orderNumber}`, 140)}
+                        alt="Order status QR code"
                         width={120}
                         height={120}
                         className="rounded-xl border-2 border-purple-200 bg-white p-1"
                       />
-                      <p className="text-[10px] text-purple-600 font-medium">Scan for receipt</p>
+                      <p className="text-[10px] text-purple-600 font-medium">Scan to track your order</p>
                     </div>
                   </div>
                   {/* Timeline */}
@@ -1667,13 +1667,13 @@ export default function Customer() {
               </p>
               <div className="mt-4 flex flex-col items-center gap-1.5">
                 <img
-                  src={qrCodeUrl(receiptQrData({ orderNumber: orderConfirmation.orderNumber, total: orderConfirmation.total }))}
-                  alt="Order receipt QR code"
+                  src={qrCodeUrl(`${baseUrl}/order-status?n=${orderConfirmation.orderNumber}`)}
+                  alt="Order status QR code"
                   width={140}
                   height={140}
                   className="rounded-lg border border-indigo-200 bg-white p-1"
                 />
-                <p className="text-[10px] text-indigo-600 font-medium">Scan for receipt</p>
+                <p className="text-[10px] text-indigo-600 font-medium">Scan to track your order</p>
               </div>
             </div>
             <p className="text-xs text-slate-500">{translatedUI.payAtCounter}</p>

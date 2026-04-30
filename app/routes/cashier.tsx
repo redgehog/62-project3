@@ -11,7 +11,7 @@ import {
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
 import { applyTax, TAX_RATE } from "../lib/pricing";
-import { qrCodeUrl, receiptQrData } from "../lib/qr";
+import { qrCodeUrl } from "../lib/qr";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -89,7 +89,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  return { categories, byCategory };
+  return { categories, byCategory, baseUrl: new URL(request.url).origin };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -338,7 +338,7 @@ interface OrderItem {
 
 export default function Cashier() {
   const navigate = useNavigate();
-  const { categories, byCategory } = useLoaderData<typeof loader>();
+  const { categories, byCategory, baseUrl } = useLoaderData<typeof loader>();
   const fetcher       = useFetcher<typeof action>();
   const lookupFetcher = useFetcher<typeof action>();
   const pinFetcher    = useFetcher<typeof action>();
@@ -1033,13 +1033,13 @@ export default function Cashier() {
               </p>
               <div className="mt-4 flex flex-col items-center gap-1.5">
                 <img
-                  src={qrCodeUrl(receiptQrData({ orderNumber: orderConfirmation.orderNumber, total: orderConfirmation.total }))}
-                  alt="Order receipt QR code"
+                  src={qrCodeUrl(`${baseUrl}/order-status?n=${orderConfirmation.orderNumber}`)}
+                  alt="Order status QR code"
                   width={140}
                   height={140}
                   className="rounded-lg border border-emerald-200 bg-white p-1"
                 />
-                <p className="text-[10px] text-emerald-600 font-medium">Scan for receipt</p>
+                <p className="text-[10px] text-emerald-600 font-medium">Scan to track your order</p>
               </div>
             </div>
             <button
