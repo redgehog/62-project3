@@ -21,11 +21,12 @@ interface KitchenLine {
 }
 
 interface KitchenOrder {
-  id:    string;
-  orderNumber: number;
+  id:           string;
+  orderNumber:  number;
   customerName: string;
-  date:  string;
-  items: KitchenLine[];
+  date:         string;
+  scheduledFor: string | null;
+  items:        KitchenLine[];
 }
 
 function lineDetailText(line: KitchenLine): string | null {
@@ -45,6 +46,11 @@ export async function loader() {
             o.order_number::int AS "orderNumber",
             COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-in Customer') AS "customerName",
             to_char(o.date AT TIME ZONE 'America/Chicago', 'HH12:MI AM') AS date,
+            CASE
+              WHEN o.scheduled_for IS NOT NULL
+              THEN to_char(o.scheduled_for AT TIME ZONE 'America/Chicago', 'Mon DD, HH12:MI AM')
+              ELSE NULL
+            END AS "scheduledFor",
             json_agg(
               json_build_object(
                 'name', i.name,
@@ -60,10 +66,10 @@ export async function loader() {
      FROM "Order" o
      JOIN "Order_Item" oi ON oi.order_id = o.order_id
      JOIN "Item" i ON i.item_id = oi.item_id
-     WHERE o.status = 'pending'
-       AND o.date >= now() - interval '12 hours'
-     GROUP BY o.order_id, o.order_number, o.customer_name, o.date
-     ORDER BY o.date ASC`
+     WHERE o.status IN ('pending', 'scheduled')
+       AND o.date >= now() - interval '24 hours'
+     GROUP BY o.order_id, o.order_number, o.customer_name, o.date, o.scheduled_for
+     ORDER BY COALESCE(o.scheduled_for, o.date) ASC`
   );
   return { orders: result.rows as KitchenOrder[] };
 }
@@ -76,7 +82,7 @@ export async function action({ request }: Route.ActionArgs) {
        UPDATE "Order"
        SET status = 'completed'
        WHERE order_id = $1::uuid
-         AND status = 'pending'
+         AND status IN ('pending', 'scheduled')
        RETURNING order_id
      ),
      consumed AS (
@@ -97,17 +103,26 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 function OrderCard({ order }: { order: KitchenOrder }) {
-  const fetcher = useFetcher();
+  const fetcher   = useFetcher();
   const completing = fetcher.state !== "idle";
+  const isScheduled = !!order.scheduledFor;
 
   return (
-    <div className="section-card flex flex-col min-h-48">
-      <div className="px-4 py-3 bg-slate-100/80 border-b border-slate-200 rounded-t-[0.875rem] flex items-center justify-between">
+    <div className={`section-card flex flex-col min-h-48 ${isScheduled ? "border-purple-300" : ""}`}>
+      <div className={`px-4 py-3 border-b rounded-t-[0.875rem] flex items-center justify-between
+        ${isScheduled ? "bg-purple-50 border-purple-200" : "bg-slate-100/80 border-slate-200"}`}>
         <span className="text-sm font-bold text-slate-800">
           Order #{order.orderNumber}
         </span>
         <span className="text-xs text-slate-500">{order.date}</span>
       </div>
+
+      {isScheduled && (
+        <div className="px-4 py-2 bg-purple-600 flex items-center gap-1.5">
+          <span className="text-white text-xs font-bold">📅 Scheduled — ready by {order.scheduledFor}</span>
+        </div>
+      )}
+
       <p className="px-4 pt-3 text-xs font-medium text-slate-500">Customer: {order.customerName}</p>
       <ul className="flex-1 px-4 py-3 space-y-1.5" role="list">
         {order.items.map((item, i) => {
@@ -131,7 +146,10 @@ function OrderCard({ order }: { order: KitchenOrder }) {
           <button
             type="submit"
             disabled={completing}
-            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+            className={`w-full py-2 focus:outline-none focus:ring-2 focus:ring-offset-2 text-white text-sm font-semibold rounded-lg transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed
+              ${isScheduled
+                ? "bg-purple-600 hover:bg-purple-700 focus:ring-purple-600"
+                : "bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-600"}`}
           >
             {completing ? "Completing…" : "Mark Complete"}
           </button>
@@ -142,8 +160,8 @@ function OrderCard({ order }: { order: KitchenOrder }) {
 }
 
 export default function Kitchen() {
-  const { orders } = useLoaderData<typeof loader>();
-  const revalidator = useRevalidator();
+  const { orders }    = useLoaderData<typeof loader>();
+  const revalidator   = useRevalidator();
 
   const translationContext = useContext(TranslationContext);
   const language = translationContext?.language ?? "en";
@@ -177,6 +195,9 @@ export default function Kitchen() {
     return () => window.clearInterval(t);
   }, [revalidator]);
 
+  const scheduled = orders.filter(o => o.scheduledFor);
+  const active    = orders.filter(o => !o.scheduledFor);
+
   return (
     <div className="h-screen flex flex-col app-shell">
       <header className="app-header px-6 py-4 shrink-0">
@@ -190,26 +211,35 @@ export default function Kitchen() {
       </header>
 
       <div className="flex-1 page-section w-full px-4 py-5 overflow-y-auto">
-        <div className="mb-4">
-          <h2 className="section-title">{translatedUI.activeQueue}</h2>
-          <p className="section-description">{translatedUI.trackPending}</p>
-        </div>
         {orders.length === 0 ? (
           <div className="section-card flex items-center justify-center h-[70vh]">
             <p className="text-slate-400 text-lg font-medium">{translatedUI.noPending}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-5 gap-4 pb-4">
-            {orders.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
+          <>
+            {active.length > 0 && (
+              <div className="mb-6">
+                <h2 className="section-title mb-3">{translatedUI.activeQueue}</h2>
+                <div className="grid grid-cols-5 gap-4">
+                  {active.map(order => <OrderCard key={order.id} order={order} />)}
+                </div>
+              </div>
+            )}
+            {scheduled.length > 0 && (
+              <div>
+                <h2 className="section-title mb-3 text-purple-700">📅 Scheduled Orders</h2>
+                <div className="grid grid-cols-5 gap-4 pb-4">
+                  {scheduled.map(order => <OrderCard key={order.id} order={order} />)}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       <footer className="soft-footer px-6 py-1.5 shrink-0">
         <p className="text-xs">
-          {orders.length} order{orders.length !== 1 ? "s" : ""} pending
+          {active.length} active · {scheduled.length} scheduled
         </p>
       </footer>
     </div>

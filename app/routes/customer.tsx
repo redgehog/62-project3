@@ -26,6 +26,14 @@ type SizeValue = "Regular" | "Large";
 
 const ALL_ALLERGENS = ["dairy", "soy", "tree-nuts", "gluten", "eggs"] as const;
 
+const ALLERGEN_ICONS: Record<string, string> = {
+  dairy:       "🥛",
+  soy:         "🫘",
+  "tree-nuts": "🌰",
+  gluten:      "🌾",
+  eggs:        "🥚",
+};
+
 interface MenuItem {
   id:             string;
   name:           string;
@@ -33,6 +41,7 @@ interface MenuItem {
   allergens:      string[];
   hasMilk:        boolean;
   hasTemperature: boolean;
+  description:    string;
 }
 
 interface Topping {
@@ -129,7 +138,9 @@ export async function loader() {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price, milk,
             COALESCE(is_seasonal, false) AS "isSeasonal",
-            COALESCE(has_temperature, false) AS "hasTemperature"
+            COALESCE(has_temperature, false) AS "hasTemperature",
+            COALESCE(allergens, '{}') AS allergens,
+            COALESCE(description, '') AS description
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -147,9 +158,10 @@ export async function loader() {
       id:             row.id,
       name:           row.name,
       price:          Number(row.price),
-      allergens:      [],
+      allergens:      (row.allergens as string[]) ?? [],
       hasMilk:        !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
       hasTemperature: Boolean(row.hasTemperature),
+      description:    (row.description as string) ?? "",
     };
     menuItems[row.category].push(item);
     if (row.isSeasonal) {
@@ -198,6 +210,93 @@ export async function action({ request }: Route.ActionArgs) {
     );
     if (rows.length === 0) return { notFound: true as const };
     return { customer: rows[0] as { id: string; name: string; points: number } };
+  }
+
+  if (intent === "verify-promo") {
+    const code = String(formData.get("code") || "").trim().toUpperCase();
+    if (!code) return { ok: false as const, error: "Enter a promo code" };
+    const result = await pool.query(
+      `SELECT code, discount_pct::float AS "discountPct"
+       FROM promo_codes
+       WHERE code = $1 AND is_active = true
+         AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
+       LIMIT 1`,
+      [code]
+    );
+    if (!result.rows.length) return { ok: false as const, error: "Invalid or expired promo code" };
+    return { ok: true as const, promo: result.rows[0] as { code: string; discountPct: number } };
+  }
+
+  if (intent === "place-scheduled-order") {
+    const oaItems = JSON.parse(formData.get("cart") as string) as Array<{ id: string; price: number; qty: number }>;
+    const scheduledFor   = String(formData.get("scheduledFor") || "");
+    const oaName         = String(formData.get("customerName") || "App Customer").trim();
+    const oaPhone        = normalizePhone(String(formData.get("customerPhone") || ""));
+    const oaPromoCode    = String(formData.get("promoCode") || "").trim().toUpperCase();
+    if (!oaItems.length || !scheduledFor) return { ok: false };
+
+    const empRow = await pool.query(`SELECT employee_id FROM "Employee" LIMIT 1`);
+    const employeeId = empRow.rows[0]?.employee_id;
+    if (!employeeId) return { ok: false, error: "No employee record" };
+
+    let customerId: string;
+    if (oaPhone) {
+      const ex = await pool.query(`SELECT customer_id FROM "Customer" WHERE phone_number = $1 LIMIT 1`, [oaPhone]);
+      if (ex.rows.length > 0) {
+        customerId = ex.rows[0].customer_id;
+      } else {
+        const cr = await pool.query(
+          `INSERT INTO "Customer" (customer_id, name, phone_number, points) VALUES (gen_random_uuid(), $1, $2, 0) RETURNING customer_id`,
+          [oaName, oaPhone]
+        );
+        customerId = cr.rows[0].customer_id;
+      }
+    } else {
+      const fallback = await pool.query(`SELECT customer_id FROM "Customer" LIMIT 1`);
+      customerId = fallback.rows[0]?.customer_id;
+      if (!customerId) return { ok: false, error: "No customer record" };
+    }
+
+    const totalQty  = oaItems.reduce((s, i) => s + i.qty, 0);
+    const subtotal  = oaItems.reduce((s, i) => s + i.price * i.qty, 0);
+    let totalPrice  = applyTax(subtotal);
+
+    if (oaPromoCode) {
+      const pr = await pool.query(
+        `SELECT discount_pct::float AS "discountPct" FROM promo_codes WHERE code = $1 AND is_active = true LIMIT 1`,
+        [oaPromoCode]
+      );
+      const pct = pr.rows[0]?.discountPct ?? 0;
+      totalPrice = parseFloat(Math.max(0, totalPrice * (1 - pct / 100)).toFixed(2));
+    }
+
+    const client = await pool.connect();
+    let oaOrderNumber: number | undefined;
+    try {
+      await client.query("BEGIN");
+      const orderNumber = await getNextOrderNumber(client);
+      oaOrderNumber = orderNumber;
+      const { rows } = await client.query(
+        `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number, status, scheduled_for)
+         VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6, 'scheduled', $7::timestamptz) RETURNING order_id`,
+        [employeeId, customerId, totalPrice.toFixed(2), totalQty, oaName, orderNumber, scheduledFor]
+      );
+      const orderId = rows[0].order_id;
+      for (const item of oaItems) {
+        await client.query(
+          `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price)
+           VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4)`,
+          [orderId, item.id, item.qty, item.price.toFixed(2)]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+    return { ok: true as const, scheduledOrder: { orderNumber: oaOrderNumber ?? 0, scheduledFor, total: totalPrice.toFixed(2) } };
   }
 
   const items = JSON.parse(formData.get("cart") as string) as Array<{
@@ -251,7 +350,20 @@ export async function action({ request }: Route.ActionArgs) {
   const redeem100Count  = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
   const pointsRedeemed  = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
   const redeemDiscount  = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
-  const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
+  const afterPoints     = Math.max(0, totalPrice - redeemDiscount);
+
+  // Apply promo code
+  const promoCodeInput = String(formData.get("promoCode") || "").trim().toUpperCase();
+  let promoDiscountPct = 0;
+  if (promoCodeInput) {
+    const pr = await pool.query(
+      `SELECT discount_pct::float AS "discountPct" FROM promo_codes WHERE code = $1 AND is_active = true LIMIT 1`,
+      [promoCodeInput]
+    );
+    promoDiscountPct = pr.rows[0]?.discountPct ?? 0;
+  }
+  const promoDiscountAmt = parseFloat((afterPoints * promoDiscountPct / 100).toFixed(2));
+  const discountedTotal  = parseFloat(Math.max(0, afterPoints - promoDiscountAmt).toFixed(2));
 
   const client = await pool.connect();
   let placedOrderNumber: number | undefined;
@@ -396,8 +508,111 @@ export default function Customer() {
   
   const [weather, setWeather] = useState<{ temp_f: number; condition: string } | null>(null);
 
-  const chatFetcher = useFetcher<typeof action>();
+  const chatFetcher   = useFetcher<typeof action>();
+  const oaFetcher     = useFetcher<typeof action>();
+  const promoFetcher  = useFetcher<typeof action>();
+  const oaPromoFetcher = useFetcher<typeof action>();
   const [chatOpen, setChatOpen] = useState(false);
+
+  // Order Ahead state
+  const [oaActive, setOaActive]       = useState(false);
+  const [oaStep, setOaStep]           = useState<"schedule" | "browse" | "customize" | "cart" | "done">("schedule");
+  const [oaDate, setOaDate]           = useState("");
+  const [oaTime, setOaTime]           = useState("");
+  const [oaCart, setOaCart]           = useState<CartItem[]>([]);
+  const [oaMode, setOaMode]           = useState(false);
+  const [oaCustomerName, setOaCustomerName] = useState("");
+  const [oaCustomerPhone, setOaCustomerPhone] = useState("");
+  const [oaPromoInput, setOaPromoInput] = useState("");
+  const [oaAppliedPromo, setOaAppliedPromo] = useState<{ code: string; discountPct: number } | null>(null);
+  const [oaPromoError, setOaPromoError]     = useState<string | null>(null);
+
+  // Regular cart promo
+  const [promoInput, setPromoInput]     = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discountPct: number } | null>(null);
+  const [promoError, setPromoError]     = useState<string | null>(null);
+  const [oaCategory, setOaCategory]   = useState(0);
+  const [oaConfirmation, setOaConfirmation] = useState<{ orderNumber: number; scheduledFor: string; total: string } | null>(null);
+
+  useEffect(() => {
+    if (oaFetcher.state !== "idle" || !oaFetcher.data) return;
+    const d = oaFetcher.data;
+    if ("scheduledOrder" in d && d.ok) {
+      const so = (d as { ok: true; scheduledOrder: { orderNumber: number; scheduledFor: string; total: string } }).scheduledOrder;
+      setOaConfirmation(so);
+      setOaCart([]);
+      setOaCustomerName("");
+      setOaCustomerPhone("");
+      setOaAppliedPromo(null);
+      setOaPromoInput("");
+      setOaStep("done");
+    }
+  }, [oaFetcher.state, oaFetcher.data]);
+
+  useEffect(() => {
+    if (promoFetcher.state !== "idle" || !promoFetcher.data) return;
+    const d = promoFetcher.data;
+    if ("promo" in d && d.ok) {
+      setAppliedPromo((d as { ok: true; promo: { code: string; discountPct: number } }).promo);
+      setPromoError(null);
+    } else if ("error" in d) setPromoError((d as { error: string }).error);
+  }, [promoFetcher.state, promoFetcher.data]);
+
+  useEffect(() => {
+    if (oaPromoFetcher.state !== "idle" || !oaPromoFetcher.data) return;
+    const d = oaPromoFetcher.data;
+    if ("promo" in d && d.ok) {
+      setOaAppliedPromo((d as { ok: true; promo: { code: string; discountPct: number } }).promo);
+      setOaPromoError(null);
+    } else if ("error" in d) setOaPromoError((d as { error: string }).error);
+  }, [oaPromoFetcher.state, oaPromoFetcher.data]);
+
+  const [clockDisplay, setClockDisplay] = useState(() =>
+    new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+  );
+  useEffect(() => {
+    const id = setInterval(() => setClockDisplay(
+      new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+    ), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const oaDates = (() => {
+    const d0 = new Date(); d0.setHours(0,0,0,0);
+    const d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
+    return [
+      { label: "Today",    value: d0.toISOString().slice(0,10) },
+      { label: "Tomorrow", value: d1.toISOString().slice(0,10) },
+    ];
+  })();
+
+  const isTomorrow = oaDate === oaDates[1].value;
+
+  // 30-min slots for today: 1h from now → 9 PM
+  const oaTimeSlots = (() => {
+    if (!oaDate || isTomorrow) return [];
+    const slots: Date[] = [];
+    const now = new Date();
+    const earliest = new Date(now.getTime() + 60 * 60 * 1000);
+    let cur = new Date(earliest);
+    cur.setMinutes(Math.ceil(cur.getMinutes() / 30) * 30, 0, 0);
+    const close = new Date(oaDate + "T21:00:00");
+    while (cur <= close) { slots.push(new Date(cur)); cur = new Date(cur.getTime() + 30 * 60 * 1000); }
+    return slots;
+  })();
+
+  const oaCategories = categories;
+  const oaCategoryItems = menuItems[oaCategories[oaCategory]] ?? [];
+  const oaTotal = oaCart.reduce((s, i) => s + i.price * i.qty, 0);
+  const oaTotalWithTax = applyTax(oaTotal);
+
+  const oaRemoveItem = (cartKey: string) => setOaCart(prev => prev.filter(i => i.cartKey !== cartKey));
+
+
+  const formatOaTime = (isoString: string) => {
+    const d = new Date(isoString);
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  };
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: "assistant", text: "Hi! I can help with menu questions and ordering." },
@@ -489,6 +704,7 @@ export default function Customer() {
     setTemperature("cold");
     setSweetness(100);
     setSelectedToppings([]);
+    if (oaMode) setOaStep("customize");
   };
 
   const openItemForEdit = (cartItem: CartItem) => {
@@ -505,7 +721,16 @@ export default function Customer() {
     setShowCart(false);
   };
 
-  const closePopup = () => { setSelectedItem(null); setEditCartKey(null); if (editCartKey) setShowCart(true); };
+  const closePopup = () => {
+    setSelectedItem(null);
+    setEditCartKey(null);
+    if (oaMode) {
+      setOaMode(false);
+      setOaStep("browse");
+    } else if (editCartKey) {
+      setShowCart(true);
+    }
+  };
 
   const toggleTopping = (id: number) =>
     setSelectedToppings(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
@@ -526,24 +751,31 @@ export default function Customer() {
       sweetness,
     };
 
-    setCart(prev => {
-      if (editCartKey) {
-        const oldItem  = prev.find(o => o.cartKey === editCartKey);
-        const conflict = prev.find(o => o.cartKey === key && o.cartKey !== editCartKey);
-        if (conflict) {
-          return prev
-            .filter(o => o.cartKey !== editCartKey)
-            .map(o => o.cartKey === key ? { ...o, qty: o.qty + (oldItem?.qty ?? 1) } : o);
+    if (oaMode) {
+      setOaCart(prev => {
+        const existing = prev.find(o => o.cartKey === key);
+        if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+        return [...prev, newItem];
+      });
+      setOaMode(false);
+      setOaStep("browse");
+    } else {
+      setCart(prev => {
+        if (editCartKey) {
+          const oldItem  = prev.find(o => o.cartKey === editCartKey);
+          const conflict = prev.find(o => o.cartKey === key && o.cartKey !== editCartKey);
+          if (conflict) {
+            return prev
+              .filter(o => o.cartKey !== editCartKey)
+              .map(o => o.cartKey === key ? { ...o, qty: o.qty + (oldItem?.qty ?? 1) } : o);
+          }
+          return prev.map(o => o.cartKey === editCartKey ? { ...newItem, qty: oldItem?.qty ?? 1 } : o);
         }
-        return prev.map(o => o.cartKey === editCartKey ? { ...newItem, qty: oldItem?.qty ?? 1 } : o);
-      }
-      const existing = prev.find(o => o.cartKey === key);
-      if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
-      return [...prev, newItem];
-    });
-
-    if (editCartKey) {
-      setShowCart(true);
+        const existing = prev.find(o => o.cartKey === key);
+        if (existing) return prev.map(o => o.cartKey === key ? { ...o, qty: o.qty + 1 } : o);
+        return [...prev, newItem];
+      });
+      if (editCartKey) setShowCart(true);
     }
     setSelectedItem(null);
     setEditCartKey(null);
@@ -557,7 +789,9 @@ export default function Customer() {
   const pointsUsed      = redeem300 * 300 + redeem100 * 100;
   const remainingPoints = availablePoints - pointsUsed;
   const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
-  const adjustedTotal   = Math.max(0, total - redeemDiscount);
+  const afterPointsTotal = Math.max(0, total - redeemDiscount);
+  const promoDiscountAmt = appliedPromo ? parseFloat((afterPointsTotal * appliedPromo.discountPct / 100).toFixed(2)) : 0;
+  const adjustedTotal    = Math.max(0, afterPointsTotal - promoDiscountAmt);
 
   const applyAllPoints = () => {
     const max300 = Math.floor(availablePoints / 300);
@@ -611,8 +845,386 @@ export default function Customer() {
         </div>
       </header>
 
+      {/* Top-level tab strip */}
+      <div className="bg-white border-b border-slate-200 flex shrink-0">
+        <button
+          onClick={() => setOaActive(false)}
+          aria-pressed={!oaActive}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors focus:outline-none
+            ${!oaActive ? "border-indigo-600 text-indigo-700 bg-indigo-50" : "border-transparent text-slate-600 hover:bg-slate-50"}`}
+        >
+          Order Now
+        </button>
+        <button
+          onClick={() => { setOaActive(true); setOaStep("schedule"); }}
+          aria-pressed={oaActive}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors focus:outline-none
+            ${oaActive ? "border-purple-600 text-purple-700 bg-purple-50" : "border-transparent text-slate-600 hover:bg-slate-50"}`}
+        >
+          📅 Order Ahead
+        </button>
+      </div>
+
       <div className="flex-1 overflow-y-auto page-section w-full px-4 py-5">
-        {showCart ? (
+        {/* ── ORDER AHEAD PHONE UI ─────────────────────────────────── */}
+        {oaActive ? (
+          <div className="flex justify-center py-4">
+            {/* Phone frame */}
+            <div className="w-[375px] bg-slate-50 rounded-[40px] shadow-2xl border-[10px] border-slate-800 overflow-hidden flex flex-col" style={{ minHeight: 700 }}>
+              {/* Notch */}
+              <div className="relative shrink-0 bg-gradient-to-br from-purple-700 to-indigo-600 pt-8 pb-4 px-5">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-6 bg-slate-800 rounded-b-3xl" />
+                <div className="flex justify-between items-center text-white/70 text-[11px] mb-2">
+                  <span>{clockDisplay}</span><span>●●●</span>
+                </div>
+                <h1 className="text-white text-xl font-bold">Boba House</h1>
+                <p className="text-purple-200 text-xs mt-0.5">Order Ahead</p>
+                {oaStep !== "schedule" && oaStep !== "done" && (
+                  <div className="flex gap-2 mt-3 text-[11px]">
+                    {(["schedule","browse","cart"] as const).map((s, i) => (
+                      <div key={s} className={`flex-1 h-1 rounded-full ${oaStep === s || (i < ["schedule","browse","cart"].indexOf(oaStep)) ? "bg-white" : "bg-white/30"}`} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Step: Schedule */}
+              {oaStep === "schedule" && (
+                <div className="flex-1 overflow-y-auto p-5">
+                  <h2 className="text-base font-bold text-slate-900 mb-1">When would you like to pick up?</h2>
+                  <p className="text-xs text-slate-500 mb-4">
+                    {isTomorrow ? "Enter any time between 10:00 AM and 5:00 PM." : "Choose a slot at least 1 hour from now."}
+                  </p>
+
+                  {/* Date picker */}
+                  <div className="flex gap-2 mb-5">
+                    {oaDates.map(d => (
+                      <button key={d.value} onClick={() => { setOaDate(d.value); setOaTime(""); }}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border-2 transition-colors
+                          ${oaDate === d.value ? "border-purple-600 bg-purple-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}>
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Today: 30-min slot grid */}
+                  {oaDate && !isTomorrow && (
+                    oaTimeSlots.length === 0 ? (
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5 text-center">
+                        <p className="text-sm text-slate-500">No slots left today.</p>
+                        <p className="text-xs text-slate-400 mt-1">Select Tomorrow to schedule ahead.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 mb-5">
+                        {oaTimeSlots.map(slot => {
+                          const val = `${slot.getHours().toString().padStart(2,"0")}:${slot.getMinutes().toString().padStart(2,"0")}`;
+                          const label = slot.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+                          return (
+                            <button key={val} onClick={() => setOaTime(val)}
+                              className={`py-2 rounded-xl text-xs font-medium border-2 transition-colors
+                                ${oaTime === val ? "border-purple-600 bg-purple-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}>
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )
+                  )}
+
+                  {/* Tomorrow: free time input (10 AM – 5 PM) */}
+                  {isTomorrow && (
+                    <div className="mb-5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Pickup time</label>
+                      <input
+                        type="time"
+                        min="10:00"
+                        max="17:00"
+                        value={oaTime}
+                        onChange={e => setOaTime(e.target.value)}
+                        className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200"
+                      />
+                      {oaTime && (oaTime < "10:00" || oaTime > "17:00") && (
+                        <p className="text-xs text-red-500 mt-1">Please choose a time between 10:00 AM and 5:00 PM.</p>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setOaStep("browse")}
+                    disabled={!oaDate || !oaTime || (isTomorrow && (oaTime < "10:00" || oaTime > "17:00"))}
+                    className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    Browse Menu →
+                  </button>
+                </div>
+              )}
+
+              {/* Step: Browse */}
+              {oaStep === "browse" && (
+                <div className="flex-1 overflow-y-auto flex flex-col">
+                  <div className="px-4 pt-4 pb-2">
+                    <p className="text-xs text-purple-700 font-semibold mb-3">
+                      Pickup: {isTomorrow ? "Tomorrow" : "Today"} at {(() => { const [h,m] = oaTime.split(":").map(Number); const d = new Date(); d.setHours(h,m,0,0); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); })()}
+                    </p>
+                    <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+                      {oaCategories.map((cat, i) => (
+                        <button key={cat} onClick={() => setOaCategory(i)}
+                          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors
+                            ${oaCategory === i ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-600"}`}>
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-4 pb-4 grid grid-cols-2 gap-3 content-start">
+                    {oaCategoryItems.map(item => {
+                      const qtyInCart = oaCart.filter(i => i.id === item.id).reduce((s, i) => s + i.qty, 0);
+                      return (
+                        <button key={item.id} onClick={() => { setOaMode(true); openItem(item); }}
+                          className="bg-white rounded-2xl border border-slate-200 p-3 flex flex-col gap-1.5 text-left hover:border-purple-400 hover:bg-purple-50 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500">
+                          <p className="text-sm font-semibold text-slate-900 leading-tight">{item.name}</p>
+                          <p className="text-xs text-slate-500">${item.price.toFixed(2)}</p>
+                          {item.allergens.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {item.allergens.map(a => (
+                                <span key={a} className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-1.5 py-0.5">
+                                  {ALLERGEN_ICONS[a]} {a.replace("-"," ")}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {qtyInCart > 0 && (
+                            <span className="mt-auto self-end text-xs font-bold text-purple-700 bg-purple-100 rounded-full px-2 py-0.5">
+                              ×{qtyInCart} in cart
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="px-4 pb-4 shrink-0">
+                    <button
+                      onClick={() => setOaStep("cart")}
+                      disabled={oaCart.length === 0}
+                      className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                      View Cart ({oaCart.reduce((s,i) => s+i.qty, 0)}) →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: Customize (inside phone) */}
+              {oaStep === "customize" && selectedItem && (
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">{selectedItem.name}</h2>
+                      <p className="text-xs text-slate-500 mt-0.5">${modalPrice.toFixed(2)}</p>
+                      {selectedItem.description && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{selectedItem.description}</p>}
+                    </div>
+                    <button onClick={closePopup} className="text-xs text-purple-600 font-medium ml-2 shrink-0">✕ Cancel</button>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 mb-1.5">Size</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SIZES.map(s => (
+                        <button key={s.value} onClick={() => setSize(s.value)} aria-pressed={size === s.value}
+                          className={`py-2 text-xs font-medium rounded-xl border-2 transition-colors ${size === s.value ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-700"}`}>
+                          <span className="block font-bold">{s.value}</span>
+                          <span className="block text-[10px] opacity-75">{s.oz}{s.upcharge > 0 ? ` +$${s.upcharge.toFixed(2)}` : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 mb-1.5">Sweetness</p>
+                    <div className="grid grid-cols-5 gap-1">
+                      {SWEETNESS_OPTIONS.map(pct => (
+                        <button key={pct} onClick={() => setSweetness(pct)} aria-pressed={sweetness === pct}
+                          className={`py-1.5 text-[11px] font-medium rounded-lg border-2 transition-colors ${sweetness === pct ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-700"}`}>
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 mb-1.5">Ice Level</p>
+                    <div className="grid grid-cols-4 gap-1">
+                      {ICE_LEVELS.map(lv => (
+                        <button key={lv} onClick={() => setIceLevel(lv)} aria-pressed={iceLevel === lv}
+                          className={`py-1.5 text-[11px] font-medium rounded-lg border-2 transition-colors ${iceLevel === lv ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-700"}`}>
+                          {lv}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedItem.hasMilk && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700 mb-1.5">Milk Type</p>
+                      <div className="grid grid-cols-3 gap-1">
+                        {MILK_TYPES.map(mt => (
+                          <button key={mt} onClick={() => setMilkType(mt)} aria-pressed={milkType === mt}
+                            className={`py-1.5 text-[11px] font-medium rounded-lg border-2 transition-colors ${milkType === mt ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-700"}`}>
+                            {mt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 mb-1.5">Toppings <span className="text-slate-400 font-normal">(+$0.75)</span></p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {TOPPINGS.map(t => (
+                        <button key={t.id} onClick={() => toggleTopping(t.id)} aria-pressed={selectedToppings.includes(t.id)}
+                          className={`py-2 px-2 text-[11px] font-medium rounded-xl border-2 text-left transition-colors ${selectedToppings.includes(t.id) ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-slate-200 text-slate-700"}`}>
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button onClick={confirmAddToCart}
+                    className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm transition-colors">
+                    Add to Order — ${modalPrice.toFixed(2)}
+                  </button>
+                </div>
+              )}
+
+              {/* Step: Cart */}
+              {oaStep === "cart" && (() => {
+                const oaPromoDiscount = oaAppliedPromo ? parseFloat((oaTotalWithTax * oaAppliedPromo.discountPct / 100).toFixed(2)) : 0;
+                const oaFinalTotal    = parseFloat(Math.max(0, oaTotalWithTax - oaPromoDiscount).toFixed(2));
+                return (
+                <div className="flex-1 overflow-y-auto flex flex-col p-4 gap-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-base font-bold text-slate-900">Checkout</h2>
+                    <button onClick={() => setOaStep("browse")} className="text-xs text-purple-600 font-medium">← Edit</button>
+                  </div>
+                  <p className="text-xs text-purple-700 font-semibold -mt-1">
+                    Pickup: {isTomorrow ? "Tomorrow" : "Today"} at {(() => { const [h,m] = oaTime.split(":").map(Number); const d = new Date(); d.setHours(h,m,0,0); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); })()}
+                  </p>
+
+                  {/* Items */}
+                  <div className="space-y-2">
+                    {oaCart.map(item => (
+                      <div key={item.cartKey} className="bg-white rounded-2xl border border-slate-200 px-3 py-2 flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-900">{item.name} ×{item.qty}</p>
+                          <p className="text-[11px] text-slate-400 truncate">
+                            {[item.size, item.milkType !== "Whole Milk" && item.milkType, item.iceLevel !== "Regular" && item.iceLevel,
+                              item.toppings.length > 0 && item.toppings.map(t => t.name).join(", ")].filter(Boolean).join(" · ")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          <span className="text-xs font-bold text-slate-800">${(item.price * item.qty).toFixed(2)}</span>
+                          <button onClick={() => oaRemoveItem(item.cartKey)} className="text-red-400 text-base leading-none">×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Customer info */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">Your Details</p>
+                    <input type="text" placeholder="Name *" value={oaCustomerName} onChange={e => setOaCustomerName(e.target.value)}
+                      className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-xs focus:outline-none focus:border-purple-500" />
+                    <input type="tel" placeholder="Phone (optional — earn points)" value={oaCustomerPhone} onChange={e => setOaCustomerPhone(e.target.value)}
+                      className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-xs focus:outline-none focus:border-purple-500" />
+                  </div>
+
+                  {/* Promo code */}
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 mb-1.5">Promo Code</p>
+                    <div className="flex gap-2">
+                      <input type="text" value={oaAppliedPromo ? oaAppliedPromo.code : oaPromoInput}
+                        onChange={e => { setOaPromoInput(e.target.value.toUpperCase()); setOaPromoError(null); }}
+                        disabled={!!oaAppliedPromo} placeholder="e.g. BOBA10"
+                        className="flex-1 rounded-xl border-2 border-slate-200 px-3 py-2 text-xs uppercase focus:outline-none focus:border-purple-500 disabled:bg-slate-50" />
+                      {oaAppliedPromo ? (
+                        <button onClick={() => { setOaAppliedPromo(null); setOaPromoInput(""); }}
+                          className="px-3 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-600">Remove</button>
+                      ) : (
+                        <button onClick={() => oaPromoFetcher.submit({ intent: "verify-promo", code: oaPromoInput }, { method: "post" })}
+                          disabled={!oaPromoInput.trim() || oaPromoFetcher.state !== "idle"}
+                          className="px-3 py-2 rounded-xl bg-purple-100 text-xs font-semibold text-purple-700 disabled:opacity-50">
+                          {oaPromoFetcher.state !== "idle" ? "…" : "Apply"}
+                        </button>
+                      )}
+                    </div>
+                    {oaAppliedPromo && <p className="text-[11px] text-emerald-600 mt-1 font-medium">{oaAppliedPromo.discountPct}% off applied</p>}
+                    {oaPromoError && <p className="text-[11px] text-red-500 mt-1">{oaPromoError}</p>}
+                  </div>
+
+                  {/* Totals */}
+                  <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 space-y-1.5 text-xs">
+                    <div className="flex justify-between text-slate-600"><span>Subtotal</span><span>${oaTotal.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-slate-600"><span>Tax (8.25%)</span><span>${(oaTotalWithTax - oaTotal).toFixed(2)}</span></div>
+                    {oaPromoDiscount > 0 && (
+                      <div className="flex justify-between text-emerald-600"><span>Promo ({oaAppliedPromo?.discountPct}% off)</span><span>-${oaPromoDiscount.toFixed(2)}</span></div>
+                    )}
+                    <div className="flex justify-between font-bold text-slate-900 pt-1 border-t border-slate-100 text-sm"><span>Total</span><span>${oaFinalTotal.toFixed(2)}</span></div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (!oaCart.length || !oaCustomerName.trim() || !oaDate || !oaTime) return;
+                      const scheduledFor = new Date(`${oaDate}T${oaTime}`).toISOString();
+                      oaFetcher.submit(
+                        { intent: "place-scheduled-order", cart: JSON.stringify(oaCart.map(i => ({ id: i.id, price: i.price, qty: i.qty }))),
+                          scheduledFor, customerName: oaCustomerName.trim(), customerPhone: oaCustomerPhone.trim(),
+                          promoCode: oaAppliedPromo?.code ?? "" },
+                        { method: "post" }
+                      );
+                    }}
+                    disabled={oaFetcher.state !== "idle" || !oaCustomerName.trim()}
+                    className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    {oaFetcher.state !== "idle" ? "Placing…" : "Place Scheduled Order"}
+                  </button>
+                  {!oaCustomerName.trim() && <p className="text-[11px] text-red-500 -mt-2 text-center">Name is required</p>}
+                </div>
+                );
+              })()}
+
+              {/* Step: Done — timeline */}
+              {oaStep === "done" && oaConfirmation && (
+                <div className="flex-1 overflow-y-auto p-5">
+                  <div className="text-center mb-6">
+                    <div className="text-4xl mb-2">🧋</div>
+                    <h2 className="text-lg font-bold text-slate-900">Order Scheduled!</h2>
+                    <p className="text-slate-500 text-sm mt-1">Order #{oaConfirmation.orderNumber} · ${oaConfirmation.total}</p>
+                  </div>
+                  {/* Timeline */}
+                  <div className="relative pl-8">
+                    <div className="absolute left-3.5 top-3 bottom-3 w-0.5 bg-purple-200" />
+                    {[
+                      { icon: "✅", label: "Order Received", sub: "Right now", done: true },
+                      { icon: "👨‍🍳", label: "Being Prepared", sub: `~${(() => { const d = new Date(oaConfirmation.scheduledFor); d.setMinutes(d.getMinutes()-15); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); })()}`, done: false },
+                      { icon: "📦", label: "Ready for Pickup", sub: formatOaTime(oaConfirmation.scheduledFor), done: false },
+                    ].map((step, i) => (
+                      <div key={i} className="flex items-start gap-4 mb-6 relative">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-base shrink-0 z-10 border-2 ${step.done ? "bg-purple-600 border-purple-600" : "bg-white border-purple-300"}`}>
+                          {step.icon}
+                        </div>
+                        <div>
+                          <p className={`text-sm font-semibold ${step.done ? "text-purple-700" : "text-slate-900"}`}>{step.label}</p>
+                          <p className="text-xs text-slate-500">{step.sub}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => { setOaStep("schedule"); setOaCart([]); setOaDate(""); setOaTime(""); setOaConfirmation(null); }}
+                    className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm transition-colors mt-2">
+                    Place Another Order
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : showCart ? (
           <div className="max-w-2xl mx-auto section-card p-6">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
@@ -666,11 +1278,38 @@ export default function Customer() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 flex items-center justify-between font-bold text-slate-900 text-base">
+                {/* Promo code */}
+                <div className="mt-4 space-y-1.5">
+                  <span className="block text-xs font-medium text-slate-600">Promo Code</span>
+                  <div className="flex gap-2">
+                    <input type="text" value={appliedPromo ? appliedPromo.code : promoInput}
+                      onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
+                      disabled={!!appliedPromo} placeholder="e.g. BOBA10"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 disabled:text-slate-500" />
+                    {appliedPromo ? (
+                      <button type="button" onClick={() => { setAppliedPromo(null); setPromoInput(""); }}
+                        className="secondary-btn px-3 py-2 text-xs">Remove</button>
+                    ) : (
+                      <button type="button"
+                        onClick={() => promoFetcher.submit({ intent: "verify-promo", code: promoInput }, { method: "post" })}
+                        disabled={!promoInput.trim() || promoFetcher.state !== "idle"}
+                        className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                        {promoFetcher.state !== "idle" ? "…" : "Apply"}
+                      </button>
+                    )}
+                  </div>
+                  {appliedPromo && <p className="text-xs text-emerald-600 font-medium">{appliedPromo.discountPct}% off applied</p>}
+                  {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between font-bold text-slate-900 text-base">
                   <span>{translatedUI.total}</span><span>${adjustedTotal.toFixed(2)}</span>
                 </div>
                 {redeemDiscount > 0 && (
                   <p className="text-xs text-emerald-600 text-right">-${redeemDiscount.toFixed(2)} {translatedUI.pointsDiscount}</p>
+                )}
+                {promoDiscountAmt > 0 && (
+                  <p className="text-xs text-emerald-600 text-right">-${promoDiscountAmt.toFixed(2)} promo ({appliedPromo?.discountPct}% off)</p>
                 )}
                 {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
                   <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
@@ -749,6 +1388,7 @@ export default function Customer() {
                       }))),
                       redeem300: String(redeem300),
                       redeem100: String(redeem100),
+                      promoCode: appliedPromo?.code ?? "",
                     };
                     if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
                       payload.customerId   = lookedUpCustomer.id;
@@ -959,10 +1599,17 @@ export default function Customer() {
                       >
                         <p className="text-sm font-semibold text-slate-900">{item.name}</p>
                         <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                        {item.description && (
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-snug">{item.description}</p>
+                        )}
                         {item.allergens.length > 0 && (
-                          <p className="mt-2 text-xs text-amber-700 leading-snug" aria-label={`Contains: ${item.allergens.join(", ")}`}>
-                            {item.allergens.map(a => a.replace("-", " ")).join(", ")}
-                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1" aria-label={`Contains: ${item.allergens.join(", ")}`}>
+                            {item.allergens.map(a => (
+                              <span key={a} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-1.5 py-0.5">
+                                {ALLERGEN_ICONS[a]} {a.replace("-", " ")}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </button>
                     ))}
@@ -1093,7 +1740,7 @@ export default function Customer() {
       </div>
 
       {/* Customization popup */}
-      {selectedItem && (
+      {selectedItem && !oaMode && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
           role="dialog"
@@ -1106,6 +1753,9 @@ export default function Customer() {
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
                 <p className="text-slate-500 text-sm mt-0.5">${modalPrice.toFixed(2)}</p>
+                {selectedItem.description && (
+                  <p className="text-xs text-slate-400 mt-1.5 leading-snug max-w-[240px]">{selectedItem.description}</p>
+                )}
               </div>
               {selectedItem.allergens.length > 0 && (
                 <div className="text-right">

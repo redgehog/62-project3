@@ -73,7 +73,8 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   if (intent === "delete") {
     const id = formData.get("id") as string;
-    await pool.query(`UPDATE "Item" SET is_active = false WHERE item_id = $1::uuid`, [id]);
+    await pool.query(`DELETE FROM "Order_Item" WHERE item_id = $1::uuid`, [id]);
+    await pool.query(`DELETE FROM "Item" WHERE item_id = $1::uuid`, [id]);
     return { ok: true };
   }
 

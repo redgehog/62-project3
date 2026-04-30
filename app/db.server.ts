@@ -28,6 +28,14 @@ pool.query(`
 `).catch(console.error);
 
 pool.query(`
+  ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS scheduled_for timestamptz
+`).catch(console.error);
+
+pool.query(`
+  ALTER TABLE "Item" ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT ''
+`).catch(console.error);
+
+pool.query(`
   ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS customer_name text NOT NULL DEFAULT 'Walk-in Customer'
 `).catch(console.error);
 

@@ -50,7 +50,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const result = await pool.query(
     `SELECT item_id::text AS id, name, category, price::float AS price,
             COALESCE(is_seasonal, false) AS "isSeasonal", milk,
-            COALESCE(has_temperature, false) AS "hasTemperature"
+            COALESCE(has_temperature, false) AS "hasTemperature",
+            COALESCE(allergens, '{}') AS allergens,
+            COALESCE(description, '') AS description
      FROM "Item"
      WHERE is_active = true
      ORDER BY category, name`
@@ -59,8 +61,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const rows = result.rows as {
     id: string; name: string; category: string; price: number;
     isSeasonal: boolean; milk: string; hasTemperature: boolean;
+    allergens: string[]; description: string;
   }[];
-  const byCategory: Record<string, { id: string; name: string; price: number; hasMilk: boolean; hasTemperature: boolean }[]> = {};
+  const byCategory: Record<string, { id: string; name: string; price: number; hasMilk: boolean; hasTemperature: boolean; allergens: string[]; description: string }[]> = {};
   const categories: string[] = [];
 
   for (const row of rows) {
@@ -72,6 +75,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       id: row.id, name: row.name, price: row.price,
       hasMilk: !!row.milk && row.milk.toLowerCase() !== "none" && row.milk.trim() !== "",
       hasTemperature: row.hasTemperature,
+      allergens: row.allergens ?? [],
+      description: row.description ?? "",
     };
     byCategory[row.category].push(item);
     if (row.isSeasonal) {
@@ -108,6 +113,35 @@ export async function action({ request }: Route.ActionArgs) {
     );
     if (rows.length === 0) return { notFound: true as const };
     return { customer: rows[0] as { id: string; name: string; points: number } };
+  }
+
+  if (intent === "verify-pin") {
+    await requireCashierAccess(request);
+    const pin = String(formData.get("pin") || "").trim();
+    const session = await getCashierSession(request);
+    const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
+    const result = sessionEmployeeId
+      ? await pool.query(
+          `SELECT 1 FROM "Employee" WHERE employee_id = $1::uuid AND pin = $2 LIMIT 1`,
+          [sessionEmployeeId, pin]
+        )
+      : await pool.query(`SELECT 1 FROM "Employee" WHERE pin = $1 LIMIT 1`, [pin]);
+    return { ok: result.rows.length > 0 };
+  }
+
+  if (intent === "verify-promo") {
+    const code = String(formData.get("code") || "").trim().toUpperCase();
+    if (!code) return { ok: false as const, error: "Enter a promo code" };
+    const result = await pool.query(
+      `SELECT code, discount_pct::float AS "discountPct"
+       FROM promo_codes
+       WHERE code = $1 AND is_active = true
+         AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
+       LIMIT 1`,
+      [code]
+    );
+    if (!result.rows.length) return { ok: false as const, error: "Invalid or expired promo code" };
+    return { ok: true as const, promo: result.rows[0] as { code: string; discountPct: number } };
   }
 
   await requireCashierAccess(request);
@@ -168,7 +202,21 @@ export async function action({ request }: Route.ActionArgs) {
   const redeem100Count  = Math.max(0, parseInt(String(formData.get("redeem100") || "0"), 10));
   const pointsRedeemed  = earnPoints ? redeem300Count * 300 + redeem100Count * 100 : 0;
   const redeemDiscount  = earnPoints ? redeem300Count * 4  + redeem100Count * 1   : 0;
-  const discountedTotal = Math.max(0, totalPrice - redeemDiscount);
+  const afterPoints     = Math.max(0, totalPrice - redeemDiscount);
+
+  // Apply promo code
+  const promoCodeInput = String(formData.get("promoCode") || "").trim().toUpperCase();
+  let promoDiscountPct = 0;
+  if (promoCodeInput) {
+    const pr = await pool.query(
+      `SELECT discount_pct::float AS "discountPct" FROM promo_codes
+       WHERE code = $1 AND is_active = true LIMIT 1`,
+      [promoCodeInput]
+    );
+    promoDiscountPct = pr.rows[0]?.discountPct ?? 0;
+  }
+  const promoDiscountAmt = parseFloat((afterPoints * promoDiscountPct / 100).toFixed(2));
+  const discountedTotal  = parseFloat(Math.max(0, afterPoints - promoDiscountAmt).toFixed(2));
 
   const client = await pool.connect();
   let orderId: string;
@@ -240,12 +288,22 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
+const ALLERGEN_ICONS: Record<string, string> = {
+  dairy:       "🥛",
+  soy:         "🫘",
+  "tree-nuts": "🌰",
+  gluten:      "🌾",
+  eggs:        "🥚",
+};
+
 interface CashierMenuItem {
   id:             string;
   name:           string;
   price:          number;
   hasMilk:        boolean;
   hasTemperature: boolean;
+  allergens:      string[];
+  description:    string;
 }
 
 function generateSurprise(allItems: CashierMenuItem[], excluded: string[]) {
@@ -262,18 +320,19 @@ function generateSurprise(allItems: CashierMenuItem[], excluded: string[]) {
 }
 
 interface OrderItem {
-  cartKey:     string;
-  id:          string;
-  name:        string;
-  basePrice:   number;
-  price:       number;
-  qty:         number;
-  size:        SizeValue;
-  milkType:    string;
-  iceLevel:    string;
-  toppings:    Topping[];
-  temperature: string;
-  sweetness:   number;
+  cartKey:        string;
+  id:             string;
+  name:           string;
+  basePrice:      number;
+  price:          number;
+  qty:            number;
+  size:           SizeValue;
+  milkType:       string;
+  iceLevel:       string;
+  toppings:       Topping[];
+  temperature:    string;
+  sweetness:      number;
+  priceOverridden: boolean;
 }
 
 export default function Cashier() {
@@ -281,6 +340,8 @@ export default function Cashier() {
   const { categories, byCategory } = useLoaderData<typeof loader>();
   const fetcher       = useFetcher<typeof action>();
   const lookupFetcher = useFetcher<typeof action>();
+  const pinFetcher    = useFetcher<typeof action>();
+  const promoFetcher  = useFetcher<typeof action>();
 
   const translationContext = useContext(TranslationContext);
   const language = translationContext?.language ?? "en";
@@ -289,7 +350,8 @@ export default function Cashier() {
     if (!sessionStorage.getItem("loggedIn")) navigate("/cashier-login");
   }, []);
 
-  const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? "");
+  const [activeCategory, setActiveCategory]     = useState(() => categories[0] ?? "");
+  const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
   const [translatedCategories, setTranslatedCategories] = useState(categories);
   const [translatedMilkTypes, setTranslatedMilkTypes]   = useState(MILK_TYPES);
   const [translatedIceLevels, setTranslatedIceLevels]   = useState(ICE_LEVELS);
@@ -329,6 +391,12 @@ export default function Cashier() {
   const [temperature, setTemperature]           = useState("cold");
   const [sweetness, setSweetness]               = useState(100);
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
+  const [priceOverride, setPriceOverride]       = useState("");
+  const [pinInput, setPinInput]                 = useState("");
+  const [pinError, setPinError]                 = useState<string | null>(null);
+  const [promoInput, setPromoInput]             = useState("");
+  const [appliedPromo, setAppliedPromo]         = useState<{ code: string; discountPct: number } | null>(null);
+  const [promoError, setPromoError]             = useState<string | null>(null);
   const [customerName, setCustomerName]         = useState("");
   const [customerPhone, setCustomerPhone]       = useState("");
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
@@ -373,11 +441,43 @@ export default function Cashier() {
   }, [lookupFetcher.state, lookupFetcher.data]);
 
   useEffect(() => {
+    if (pinFetcher.state !== "idle" || !pinFetcher.data) return;
+    const data = pinFetcher.data as { ok: boolean };
+    if (data.ok) {
+      const override = priceOverride.trim() ? parseFloat(priceOverride) : null;
+      doAddToCart(override);
+      setPinError(null);
+      setPinInput("");
+    } else {
+      setPinError("Incorrect PIN — try again.");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinFetcher.state, pinFetcher.data]);
+
+  useEffect(() => {
+    if (promoFetcher.state !== "idle" || !promoFetcher.data) return;
+    const data = promoFetcher.data;
+    if ("promo" in data && data.ok) {
+      setAppliedPromo((data as { ok: true; promo: { code: string; discountPct: number } }).promo);
+      setPromoError(null);
+    } else if ("error" in data) {
+      setPromoError((data as { error: string }).error);
+      setAppliedPromo(null);
+    }
+  }, [promoFetcher.state, promoFetcher.data]);
+
+  useEffect(() => {
     if (!selectedItem) return;
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") closePopup(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedItem]);
+
+  const resetPopupState = () => {
+    setPriceOverride("");
+    setPinInput("");
+    setPinError(null);
+  };
 
   const openItem = (item: CashierMenuItem) => {
     setSelectedItem(item);
@@ -388,6 +488,7 @@ export default function Cashier() {
     setTemperature("cold");
     setSweetness(100);
     setSelectedToppings([]);
+    resetPopupState();
   };
 
   const openItemForEdit = (cartItem: OrderItem) => {
@@ -401,29 +502,31 @@ export default function Cashier() {
     setTemperature(cartItem.temperature || "cold");
     setSweetness(cartItem.sweetness || 100);
     setSelectedToppings(cartItem.toppings.map(t => t.id));
+    resetPopupState();
   };
 
-  const closePopup = () => { setSelectedItem(null); setEditCartKey(null); };
+  const closePopup = () => { setSelectedItem(null); setEditCartKey(null); resetPopupState(); };
 
   const toggleTopping = (id: number) =>
     setSelectedToppings(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
 
-  const confirmAddToCart = () => {
+  const doAddToCart = (overridePrice: number | null) => {
     if (!selectedItem) return;
     const toppings   = TOPPINGS.filter(t => selectedToppings.includes(t.id));
     const toppingIds = toppings.map(t => t.id).sort().join(",");
     const key        = `${selectedItem.id}-${size}-${milkType}-${iceLevel}-${temperature}-${sweetness}-${toppingIds}`;
     const sizeUpcharge = SIZES.find(s => s.value === size)?.upcharge ?? 0;
-    const sizedPrice = parseFloat((selectedItem.price + sizeUpcharge).toFixed(2));
-    const itemTotal  = sizedPrice + toppings.reduce((s, t) => s + t.price, 0);
+    const sizedPrice   = parseFloat((selectedItem.price + sizeUpcharge).toFixed(2));
+    const calculated   = parseFloat((sizedPrice + toppings.reduce((s, t) => s + t.price, 0)).toFixed(2));
+    const finalPrice   = overridePrice !== null ? overridePrice : calculated;
     const newItem: OrderItem = {
       cartKey: key, id: selectedItem.id, name: selectedItem.name,
-      basePrice: selectedItem.price, price: itemTotal,
+      basePrice: selectedItem.price, price: finalPrice,
       qty: 1, size, milkType, iceLevel, toppings,
       temperature: selectedItem.hasTemperature ? temperature : "",
       sweetness,
+      priceOverridden: overridePrice !== null && overridePrice !== calculated,
     };
-
     setOrderItems(prev => {
       if (editCartKey) {
         const oldItem = prev.find(o => o.cartKey === editCartKey);
@@ -442,6 +545,19 @@ export default function Cashier() {
     closePopup();
   };
 
+  const handleAddToOrder = () => {
+    if (!selectedItem) return;
+    const overrideVal     = priceOverride.trim() ? parseFloat(priceOverride) : null;
+    const sizeUpcharge    = SIZES.find(s => s.value === size)?.upcharge ?? 0;
+    const calculated      = parseFloat((selectedItem.price + sizeUpcharge + selectedToppings.length * 0.75).toFixed(2));
+    const hasOverride     = overrideVal !== null && overrideVal !== calculated;
+    if (hasOverride) {
+      pinFetcher.submit({ intent: "verify-pin", pin: pinInput }, { method: "post" });
+    } else {
+      doAddToCart(null);
+    }
+  };
+
   const removeItem = (cartKey: string) => setOrderItems(prev => prev.filter(o => o.cartKey !== cartKey));
 
   const subtotal        = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -451,7 +567,9 @@ export default function Cashier() {
   const pointsUsed      = redeem300 * 300 + redeem100 * 100;
   const remainingPoints = availablePoints - pointsUsed;
   const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
-  const adjustedTotal   = Math.max(0, total - redeemDiscount);
+  const afterPoints     = Math.max(0, total - redeemDiscount);
+  const promoDiscountAmt = appliedPromo ? parseFloat((afterPoints * appliedPromo.discountPct / 100).toFixed(2)) : 0;
+  const adjustedTotal   = Math.max(0, afterPoints - promoDiscountAmt);
   const submitting      = fetcher.state !== "idle";
 
   const applyAllPoints = () => {
@@ -479,6 +597,7 @@ export default function Cashier() {
       customerName: customerName.trim(),
       redeem300: String(redeem300),
       redeem100: String(redeem100),
+      promoCode: appliedPromo?.code ?? "",
     };
     if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
       payload.customerId = lookedUpCustomer.id;
@@ -646,8 +765,32 @@ export default function Cashier() {
               })()}
             </div>
           ) : (
+            <>{/* Allergen filter */}
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs font-semibold text-amber-800 mb-2">Filter allergens — hide items containing:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ALL_ALLERGENS.map(allergen => {
+                  const blocked = blockedAllergens.includes(allergen);
+                  return (
+                    <button key={allergen} onClick={() => setBlockedAllergens(prev => blocked ? prev.filter(a => a !== allergen) : [...prev, allergen])}
+                      aria-pressed={blocked}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors focus:outline-none
+                        ${blocked ? "bg-amber-600 border-amber-600 text-white" : "bg-white border-amber-300 text-amber-800 hover:bg-amber-100"}`}>
+                      {ALLERGEN_ICONS[allergen]} {allergen.replace("-"," ")}
+                    </button>
+                  );
+                })}
+                {blockedAllergens.length > 0 && (
+                  <button onClick={() => setBlockedAllergens([])}
+                    className="px-2.5 py-1 rounded-full text-xs font-semibold border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition-colors">
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-3 gap-3">
-              {items.map(item => (
+              {items.filter(item => !item.allergens.some(a => blockedAllergens.includes(a))).map(item => (
                 <button
                   key={item.id}
                   onClick={() => openItem(item)}
@@ -655,60 +798,69 @@ export default function Cashier() {
                 >
                   <p className="text-sm font-semibold text-slate-900">{item.name}</p>
                   <p className="text-sm text-slate-500 mt-1">${item.price.toFixed(2)}</p>
+                  {item.description && (
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-snug">{item.description}</p>
+                  )}
+                  {item.allergens.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {item.allergens.map(a => (
+                        <span key={a} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-1.5 py-0.5">
+                          {ALLERGEN_ICONS[a]} {a.replace("-"," ")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
+            </>
           )}
         </div>
 
         {/* Order summary */}
         <aside className="w-72 section-card bg-white/90 backdrop-blur flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b border-slate-200">
+          <div className="px-4 py-3 border-b border-slate-200 shrink-0">
             <h2 className="text-sm font-semibold text-slate-700">Order Summary</h2>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-2">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 text-sm">
+            {/* Cart items */}
             {orderItems.length === 0 ? (
-              <p className="text-sm text-slate-400 mt-2">No items added yet.</p>
+              <p className="text-slate-400">No items added yet.</p>
             ) : (
-              orderItems.map(item => (
-                <div key={item.cartKey} className="flex items-start justify-between py-2 border-b border-slate-100 text-sm">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-slate-800">{item.name} ×{item.qty}</p>
-                    <p className="text-slate-400 text-xs mt-0.5 truncate">
-                      {[
-                        `${item.size} (${SIZES.find(s => s.value === item.size)?.oz})`,
-                        item.temperature && item.temperature,
-                        item.sweetness !== 100 && `${item.sweetness}%`,
-                        item.milkType !== "Whole Milk" && item.milkType,
-                        item.iceLevel !== "Regular" && item.iceLevel,
-                        item.toppings.length > 0 && item.toppings.map(t => t.name).join(", "),
-                      ].filter(Boolean).join(" · ")}
-                    </p>
+              <div className="divide-y divide-slate-100 mb-2">
+                {orderItems.map(item => (
+                  <div key={item.cartKey} className="flex items-start justify-between py-2 text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-800">
+                        {item.name} ×{item.qty}
+                        {item.priceOverridden && <span className="ml-1 text-xs text-amber-600 font-normal">(override)</span>}
+                      </p>
+                      <p className="text-slate-400 text-xs mt-0.5 truncate">
+                        {[
+                          `${item.size} (${SIZES.find(s => s.value === item.size)?.oz})`,
+                          item.temperature && item.temperature,
+                          item.sweetness !== 100 && `${item.sweetness}%`,
+                          item.milkType !== "Whole Milk" && item.milkType,
+                          item.iceLevel !== "Regular" && item.iceLevel,
+                          item.toppings.length > 0 && item.toppings.map(t => t.name).join(", "),
+                        ].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    <span className="flex items-center gap-1 text-slate-700 shrink-0 ml-2">
+                      <span className="text-xs">${(item.price * item.qty).toFixed(2)}</span>
+                      <button onClick={() => openItemForEdit(item)} aria-label={`Edit ${item.name}`}
+                        className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5">✎</button>
+                      <button onClick={() => removeItem(item.cartKey)} aria-label={`Remove ${item.name}`}
+                        className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded">✕</button>
+                    </span>
                   </div>
-                  <span className="flex items-center gap-1 text-slate-700 shrink-0 ml-2">
-                    <span className="text-xs">${(item.price * item.qty).toFixed(2)}</span>
-                    <button
-                      onClick={() => openItemForEdit(item)}
-                      aria-label={`Edit ${item.name}`}
-                      className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => removeItem(item.cartKey)}
-                      aria-label={`Remove ${item.name}`}
-                      className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded"
-                    >
-                      ✕
-                    </button>
-                  </span>
-                </div>
-              ))
+                ))}
+              </div>
             )}
-          </div>
 
-          <div className="px-4 py-4 border-t border-slate-200 space-y-2 text-sm">
+            {/* Checkout fields */}
+            <div className="border-t border-slate-200 pt-3 space-y-2">
             <div className="space-y-1.5">
               <span className="block text-xs font-medium text-slate-600">Phone Number</span>
               <div className="flex gap-2">
@@ -781,6 +933,40 @@ export default function Cashier() {
                 )}
               </div>
             )}
+            {/* Promo code */}
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-slate-600">Promo Code</span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={appliedPromo ? appliedPromo.code : promoInput}
+                  onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
+                  disabled={!!appliedPromo}
+                  placeholder="BOBA10"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 disabled:text-slate-500"
+                />
+                {appliedPromo ? (
+                  <button type="button" onClick={() => { setAppliedPromo(null); setPromoInput(""); }}
+                    className="secondary-btn px-3 py-2 text-xs">
+                    Remove
+                  </button>
+                ) : (
+                  <button type="button"
+                    onClick={() => promoFetcher.submit({ intent: "verify-promo", code: promoInput }, { method: "post" })}
+                    disabled={!promoInput.trim() || promoFetcher.state !== "idle"}
+                    className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                    {promoFetcher.state !== "idle" ? "…" : "Apply"}
+                  </button>
+                )}
+              </div>
+              {appliedPromo && (
+                <p className="text-xs text-emerald-600 font-medium">
+                  {appliedPromo.discountPct}% off applied
+                </p>
+              )}
+              {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+            </div>
+
             <div className="flex justify-between text-slate-600">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
@@ -790,6 +976,12 @@ export default function Cashier() {
             {redeemDiscount > 0 && (
               <div className="flex justify-between text-emerald-600 text-xs">
                 <span>Points discount</span><span>-${redeemDiscount.toFixed(2)}</span>
+              </div>
+            )}
+            {promoDiscountAmt > 0 && (
+              <div className="flex justify-between text-emerald-600 text-xs">
+                <span>Promo ({appliedPromo?.discountPct}% off)</span>
+                <span>-${promoDiscountAmt.toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
@@ -807,7 +999,8 @@ export default function Cashier() {
                 {"error" in fetcher.data! ? (fetcher.data as { error: string }).error : "Failed to submit order"}
               </p>
             )}
-          </div>
+            </div>{/* end checkout fields */}
+          </div>{/* end scrollable */}
         </aside>
       </div>
 
@@ -863,6 +1056,18 @@ export default function Cashier() {
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
                 <p className="text-slate-500 text-sm mt-0.5">${modalPrice.toFixed(2)}</p>
+                {selectedItem.description && (
+                  <p className="text-xs text-slate-400 mt-1.5 leading-snug max-w-[240px]">{selectedItem.description}</p>
+                )}
+                {selectedItem.allergens.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {selectedItem.allergens.map(a => (
+                      <span key={a} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-1.5 py-0.5">
+                        {ALLERGEN_ICONS[a]} {a.replace("-"," ")}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -985,14 +1190,45 @@ export default function Cashier() {
               </div>
             </div>
 
+            {/* Price override */}
+            <div className="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+              <p className="text-xs font-semibold text-amber-800">Price Override <span className="font-normal text-amber-600">(requires manager PIN)</span></p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-600">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={priceOverride}
+                  onChange={e => { setPriceOverride(e.target.value); setPinError(null); }}
+                  placeholder={modalPrice.toFixed(2)}
+                  className="flex-1 rounded-lg border border-amber-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              {priceOverride.trim() && parseFloat(priceOverride) !== modalPrice && (
+                <div className="space-y-1.5">
+                  <input
+                    type="password"
+                    maxLength={8}
+                    value={pinInput}
+                    onChange={e => { setPinInput(e.target.value); setPinError(null); }}
+                    placeholder="Manager PIN"
+                    className="w-full rounded-lg border border-amber-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  {pinError && <p className="text-xs text-red-600">{pinError}</p>}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 mt-2">
               <button type="button" onClick={closePopup}
                 className="secondary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors">
                 Cancel
               </button>
-              <button type="button" onClick={confirmAddToCart}
-                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors">
-                {editCartKey ? "Update Item" : "Add to Order"}
+              <button type="button" onClick={handleAddToOrder}
+                disabled={pinFetcher.state !== "idle"}
+                className="primary-btn flex-1 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
+                {pinFetcher.state !== "idle" ? "Verifying…" : editCartKey ? "Update Item" : "Add to Order"}
               </button>
             </div>
           </div>
