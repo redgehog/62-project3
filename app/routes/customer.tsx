@@ -188,17 +188,125 @@ export async function action({ request }: Route.ActionArgs) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return { ok: false as const, error: "AI chat is not configured yet." };
 
+    const menuResult = await pool.query(
+      `SELECT name, category, price::float AS price,
+              COALESCE(allergens, '{}') AS allergens,
+              COALESCE(description, '') AS description
+       FROM "Item"
+       WHERE is_active = true
+       ORDER BY category, name`
+    );
+
+    const menuContext = menuResult.rows
+      .map((row) => {
+        const allergens = ((row.allergens as string[]) ?? []).join(", ") || "none listed";
+        const descriptionRaw = String(row.description ?? "").trim() || "No description provided.";
+        const description = descriptionRaw.length > 160 ? `${descriptionRaw.slice(0, 157)}...` : descriptionRaw;
+        return `- ${row.name} (${row.category}) - $${Number(row.price).toFixed(2)} | allergens: ${allergens} | description: ${description}`;
+      })
+      .join("\n");
+
+    const systemInstruction = `
+You are the Boba House customer assistant for ordering help only.
+
+Rules you must follow:
+1) Use ONLY the provided menu context below. Do not use outside knowledge.
+2) If asked about anything not in the menu context, clearly say it is unavailable in current menu data.
+3) If the user message is outside Boba House menu, drink recommendations, customization, allergens, pickup/order flow, or ordering intent, politely refuse and redirect to ordering/menu help.
+4) Recommend drinks based on the menu context descriptions, allergens, and user preferences (sweetness, milk, caffeine, flavor, temperature).
+5) If the user gives little detail, ask one short clarifying question and also provide 2-3 default menu suggestions from context.
+6) Keep responses concise and customer-friendly.
+7) Never provide medical advice; for health-style requests, frame as preference-based suggestions from menu descriptions and allergen info only.
+8) Always finish with a complete sentence; do not end mid-thought.
+9) Keep every reply between 35 and 90 words total.
+10) Use at most 4 short sentences. If giving suggestions, list no more than 3 items.
+11) Avoid long preambles; answer directly and keep each sentence brief.
+`.trim();
+
+    const prompt = `
+Menu context:
+${menuContext || "- No active menu items found."}
+
+Customer message:
+${message}
+`.trim();
+
     const { GoogleGenAI } = await import("@google/genai");
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-      contents: message,
-      config: { maxOutputTokens: 300 },
-    });
-    return {
-      ok: true as const,
-      reply: response.text?.trim() || "I could not generate a response. Please try again.",
+    const isCompleteSentence = (text: string) => /[.!?]["')\]]?\s*$/.test(text.trim());
+    const trimToCompleteSentence = (text: string) => {
+      const normalized = text.trim();
+      if (!normalized) return normalized;
+      const lastPunct = Math.max(
+        normalized.lastIndexOf("."),
+        normalized.lastIndexOf("!"),
+        normalized.lastIndexOf("?")
+      );
+      if (lastPunct >= 0) return normalized.slice(0, lastPunct + 1).trim();
+      return "";
     };
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          maxOutputTokens: 900,
+          systemInstruction,
+        },
+      });
+
+      const finishReason = response.candidates?.[0]?.finishReason;
+      let reply = response.text?.trim() || "I could not generate a response. Please try again.";
+
+      // Only run a second model call when explicitly token-truncated to reduce free-tier quota burn.
+      if (finishReason === "MAX_TOKENS") {
+        const continuation = await ai.models.generateContent({
+          model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+          contents: `
+Continue and finish this exact assistant reply naturally in one concise sentence.
+Do not repeat prior text.
+
+Partial reply:
+${reply}
+`.trim(),
+          config: {
+            maxOutputTokens: 80,
+            systemInstruction,
+          },
+        });
+        const tail = continuation.text?.trim();
+        if (tail) reply = `${reply} ${tail}`.trim();
+      }
+
+      // Final hard guard: never return a visibly cut-off fragment.
+      if (!isCompleteSentence(reply)) {
+        const trimmed = trimToCompleteSentence(reply);
+        reply = trimmed || "I can help with drink recommendations from our menu. Tell me if you want fruity, creamy, caffeinated, or caffeine-free options.";
+      }
+
+      return {
+        ok: true as const,
+        reply,
+      };
+    } catch (error: any) {
+      const errorMessage = String(error?.message ?? "");
+      const isQuotaError =
+        error?.status === "RESOURCE_EXHAUSTED"
+        || /RESOURCE_EXHAUSTED|quota|429/i.test(errorMessage);
+
+      if (isQuotaError) {
+        return {
+          ok: false as const,
+          error: "Our assistant is temporarily busy right now. Please wait a moment and try again.",
+        };
+      }
+
+      return {
+        ok: false as const,
+        error: "Chat is temporarily unavailable. Please try again shortly.",
+      };
+    }
   }
 
   if (intent === "lookup-customer") {
@@ -824,25 +932,38 @@ export default function Customer() {
             <span className="brand-link">Boba House</span>
             <p className="topbar-tagline">{translatedUI.tagline}</p>
           </div>
-          {weather && (
-            <div className="flex items-center gap-1.5 text-white/80 text-sm font-medium">
-              <span>{Math.round(weather.temp_f)}°F</span>
-              <span className="text-white/50 text-xs hidden sm:inline">· {weather.condition}</span>
+          <div className="ml-auto flex items-center gap-3">
+            {weather && (
+              <div className="flex items-center gap-1.5 text-white/80 text-sm font-medium whitespace-nowrap">
+                <span>{Math.round(weather.temp_f)}°F</span>
+                <span className="text-white/50 text-xs hidden sm:inline">· {weather.condition}</span>
+              </div>
+            )}
+            <div className="relative">
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value as LanguageCode)}
+                aria-label="Select language"
+                className="navbar-select"
+              >
+                {Object.entries(MAJOR_LANGUAGES).map(([name, code]) => (
+                  <option key={code} value={code}>
+                    {name.charAt(0).toUpperCase() + name.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-300">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                  <path
+                    fillRule="evenodd"
+                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </span>
             </div>
-          )}
-          <span className="topbar-chip">{translatedUI.kioskLabel}</span>
-          <select
-            value={language}
-            onChange={e => setLanguage(e.target.value as LanguageCode)}
-            aria-label="Select language"
-            className="ml-4 px-2 py-1 text-sm bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {Object.entries(MAJOR_LANGUAGES).map(([name, code]) => (
-              <option key={code} value={code}>
-                {name.charAt(0).toUpperCase() + name.slice(1)}
-              </option>
-            ))}
-          </select>
+          </div>
+          <span className="topbar-chip shrink-0">{translatedUI.kioskLabel}</span>
         </div>
       </header>
 
@@ -1706,7 +1827,7 @@ export default function Customer() {
                 ×
               </button>
             </div>
-            <div className="h-72 overflow-y-auto bg-slate-50 px-3 py-3 space-y-2">
+            <div className="h-96 overflow-y-auto bg-slate-50 px-3 py-3 space-y-2">
               {chatMessages.map((msg, idx) => (
                 <div
                   key={`${msg.role}-${idx}`}
