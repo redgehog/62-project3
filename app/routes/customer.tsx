@@ -95,7 +95,7 @@ const UI_STRINGS = {
   sizeLarge:          "Large",
   temperature:        "Temperature",
   tempHot:            "🔥 Hot",
-  tempCold:           "🧊 Cold",
+  tempCold:           "🧊 Iced",
   sweetness:          "Sweetness",
   iceLevel:           "Ice Level",
   milkType:           "Milk Type",
@@ -503,7 +503,7 @@ export default function Customer() {
   const [size, setSize]                         = useState<SizeValue>("Regular");
   const [milkType, setMilkType]                 = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
-  const [temperature, setTemperature]           = useState("cold");
+  const [temperature, setTemperature]           = useState("iced");
   const [sweetness, setSweetness]               = useState(100);
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   
@@ -702,7 +702,7 @@ export default function Customer() {
     setSize("Regular");
     setMilkType("Whole Milk");
     setIceLevel("Regular");
-    setTemperature("cold");
+    setTemperature("iced");
     setSweetness(100);
     setSelectedToppings([]);
     if (oaMode) setOaStep("customize");
@@ -716,7 +716,7 @@ export default function Customer() {
     setSize(cartItem.size);
     setMilkType(cartItem.milkType);
     setIceLevel(cartItem.iceLevel);
-    setTemperature(cartItem.temperature || "cold");
+    setTemperature(cartItem.temperature || "iced");
     setSweetness(cartItem.sweetness || 100);
     setSelectedToppings(cartItem.toppings.map(t => t.id));
     setShowCart(false);
@@ -1557,13 +1557,13 @@ export default function Customer() {
                           onClick={() => {
                             const toppingIds = r.toppings.map(t => t.id).sort().join(",");
                             const milkType   = r.item.hasMilk ? "Whole Milk" : "No Milk";
-                            const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-cold-${r.sweetness}-${toppingIds}`;
+                            const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-iced-${r.sweetness}-${toppingIds}`;
                             const sizedPrice = parseFloat((r.item.price + sizeUpcharge).toFixed(2));
                             const newItem: CartItem = {
                               cartKey: key, id: r.item.id, name: r.item.name,
                               basePrice: r.item.price, price: sizedPrice + r.toppings.reduce((s, t) => s + t.price, 0),
                               qty: 1, size: r.size, milkType, iceLevel: r.iceLevel, toppings: r.toppings,
-                              temperature: r.item.hasTemperature ? "cold" : "",
+                              temperature: r.item.hasTemperature ? "iced" : "",
                               sweetness: r.sweetness,
                             };
                             setCart(prev => {
@@ -1817,7 +1817,7 @@ export default function Customer() {
               <div className="mb-5">
                 <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.temperature}</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {(["hot", "cold"] as const).map(temp => (
+                  {(["hot", "iced"] as const).map(temp => (
                     <button
                       key={temp}
                       onClick={() => setTemperature(temp)}

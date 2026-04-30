@@ -389,7 +389,7 @@ export default function Cashier() {
   const [size, setSize]                         = useState<SizeValue>("Regular");
   const [milkType, setMilkType]                 = useState("Whole Milk");
   const [iceLevel, setIceLevel]                 = useState("Regular");
-  const [temperature, setTemperature]           = useState("cold");
+  const [temperature, setTemperature]           = useState("iced");
   const [sweetness, setSweetness]               = useState(100);
   const [selectedToppings, setSelectedToppings] = useState<number[]>([]);
   const [priceOverride, setPriceOverride]       = useState("");
@@ -486,7 +486,7 @@ export default function Cashier() {
     setSize("Regular");
     setMilkType("Whole Milk");
     setIceLevel("Regular");
-    setTemperature("cold");
+    setTemperature("iced");
     setSweetness(100);
     setSelectedToppings([]);
     resetPopupState();
@@ -500,7 +500,7 @@ export default function Cashier() {
     setSize(cartItem.size);
     setMilkType(cartItem.milkType);
     setIceLevel(cartItem.iceLevel);
-    setTemperature(cartItem.temperature || "cold");
+    setTemperature(cartItem.temperature || "iced");
     setSweetness(cartItem.sweetness || 100);
     setSelectedToppings(cartItem.toppings.map(t => t.id));
     resetPopupState();
@@ -729,13 +729,13 @@ export default function Cashier() {
                         onClick={() => {
                           const toppingIds = r.toppings.map(t => t.id).sort().join(",");
                           const milkType   = r.item.hasMilk ? "Whole Milk" : "No Milk";
-                          const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-cold-${r.sweetness}-${toppingIds}`;
+                          const key        = `${r.item.id}-${r.size}-${milkType}-${r.iceLevel}-iced-${r.sweetness}-${toppingIds}`;
                           const sizedPrice = parseFloat((r.item.price + sizeUpcharge).toFixed(2));
                           const newItem: OrderItem = {
                             cartKey: key, id: r.item.id, name: r.item.name,
                             basePrice: r.item.price, price: sizedPrice + r.toppings.reduce((s, t) => s + t.price, 0),
                             qty: 1, size: r.size, milkType, iceLevel: r.iceLevel, toppings: r.toppings,
-                            temperature: r.item.hasTemperature ? "cold" : "",
+                            temperature: r.item.hasTemperature ? "iced" : "",
                             sweetness: r.sweetness,
                           };
                           setOrderItems(prev => {
@@ -1107,7 +1107,7 @@ export default function Cashier() {
               <div className="mb-5">
                 <p className="text-sm font-semibold text-slate-700 mb-2">Temperature</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {["hot", "cold"].map(temp => (
+                  {["hot", "iced"].map(temp => (
                     <button
                       key={temp}
                       type="button"
@@ -1116,7 +1116,7 @@ export default function Cashier() {
                       className={`py-2 text-xs font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
                         ${temperature === temp ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"}`}
                     >
-                      {temp === "hot" ? "🔥 Hot" : "🧊 Cold"}
+                      {temp === "hot" ? "🔥 Hot" : "🧊 Iced"}
                     </button>
                   ))}
                 </div>
