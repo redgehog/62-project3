@@ -770,16 +770,18 @@ export default function Customer() {
       setTranslatedUI(result);
     });
 
-    Promise.all(categories.map(cat => translateText(cat, { to: language }))).then(setTranslatedCategories);
     const translateMenu = async () => {
       const newMenu: typeof menuItems = {};
+      const newCategories: string[] = [];
       for (const [cat, catItems] of Object.entries(menuItems)) {
         const translatedCat = await translateText(cat, { to: language });
         newMenu[translatedCat] = await Promise.all(
           catItems.map(async item => ({ ...item, name: await translateText(item.name, { to: language }) }))
         );
+        newCategories.push(translatedCat);
       }
       setTranslatedMenuItems(newMenu);
+      setTranslatedCategories(newCategories);
     };
     translateMenu();
     Promise.all(MILK_TYPES.map(mt => translateText(mt, { to: language }))).then(setTranslatedMilkTypes);
