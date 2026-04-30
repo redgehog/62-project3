@@ -6,6 +6,7 @@ import pool from "../db.server";
 import type { PoolClient } from "pg";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 import { applyTax } from "../lib/pricing";
+import { qrCodeUrl, receiptQrData } from "../lib/qr";
 import { TranslationContext } from "../root";
 
 export function meta({}: Route.MetaArgs) {
@@ -1191,10 +1192,20 @@ export default function Customer() {
               {/* Step: Done — timeline */}
               {oaStep === "done" && oaConfirmation && (
                 <div className="flex-1 overflow-y-auto p-5">
-                  <div className="text-center mb-6">
+                  <div className="text-center mb-5">
                     <div className="text-4xl mb-2">🧋</div>
                     <h2 className="text-lg font-bold text-slate-900">Order Scheduled!</h2>
                     <p className="text-slate-500 text-sm mt-1">Order #{oaConfirmation.orderNumber} · ${oaConfirmation.total}</p>
+                    <div className="mt-3 flex flex-col items-center gap-1">
+                      <img
+                        src={qrCodeUrl(receiptQrData({ orderNumber: oaConfirmation.orderNumber, total: oaConfirmation.total, scheduledFor: formatOaTime(oaConfirmation.scheduledFor) }), 140)}
+                        alt="Order receipt QR code"
+                        width={120}
+                        height={120}
+                        className="rounded-xl border-2 border-purple-200 bg-white p-1"
+                      />
+                      <p className="text-[10px] text-purple-600 font-medium">Scan for receipt</p>
+                    </div>
                   </div>
                   {/* Timeline */}
                   <div className="relative pl-8">
@@ -1654,6 +1665,16 @@ export default function Customer() {
                 {translatedUI.orderTotalLabel}:{" "}
                 <span className="font-semibold text-slate-900">${orderConfirmation.total}</span>
               </p>
+              <div className="mt-4 flex flex-col items-center gap-1.5">
+                <img
+                  src={qrCodeUrl(receiptQrData({ orderNumber: orderConfirmation.orderNumber, total: orderConfirmation.total }))}
+                  alt="Order receipt QR code"
+                  width={140}
+                  height={140}
+                  className="rounded-lg border border-indigo-200 bg-white p-1"
+                />
+                <p className="text-[10px] text-indigo-600 font-medium">Scan for receipt</p>
+              </div>
             </div>
             <p className="text-xs text-slate-500">{translatedUI.payAtCounter}</p>
             <button

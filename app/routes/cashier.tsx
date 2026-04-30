@@ -11,6 +11,7 @@ import {
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
 import { applyTax, TAX_RATE } from "../lib/pricing";
+import { qrCodeUrl, receiptQrData } from "../lib/qr";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Cashier — Boba House" }];
@@ -1030,6 +1031,16 @@ export default function Cashier() {
                 Total:{" "}
                 <span className="font-semibold text-slate-900">${orderConfirmation.total}</span>
               </p>
+              <div className="mt-4 flex flex-col items-center gap-1.5">
+                <img
+                  src={qrCodeUrl(receiptQrData({ orderNumber: orderConfirmation.orderNumber, total: orderConfirmation.total }))}
+                  alt="Order receipt QR code"
+                  width={140}
+                  height={140}
+                  className="rounded-lg border border-emerald-200 bg-white p-1"
+                />
+                <p className="text-[10px] text-emerald-600 font-medium">Scan for receipt</p>
+              </div>
             </div>
             <button
               type="button"
