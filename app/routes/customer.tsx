@@ -472,8 +472,9 @@ ${reply}
     );
     promoDiscountPct = pr.rows[0]?.discountPct ?? 0;
   }
-  const promoDiscountAmt = parseFloat((afterPoints * promoDiscountPct / 100).toFixed(2));
-  const discountedTotal  = parseFloat(Math.max(0, afterPoints - promoDiscountAmt).toFixed(2));
+  const promoDiscountAmt  = parseFloat((afterPoints * promoDiscountPct / 100).toFixed(2));
+  const wheelDiscountAmt  = Math.max(0, Math.min(parseFloat(String(formData.get("wheelDiscount") || "0")), 20));
+  const discountedTotal   = parseFloat(Math.max(0, afterPoints - promoDiscountAmt - wheelDiscountAmt).toFixed(2));
 
   const client = await pool.connect();
   let placedOrderNumber: number | undefined;
@@ -544,6 +545,115 @@ async function getNextOrderNumber(client: PoolClient) {
   return rows[0]?.next_order_number ?? 1;
 }
 
+// ── Wheel spin ────────────────────────────────────────────────────────────
+type WheelPrize =
+  | { type: "none";    label: string; color: string }
+  | { type: "percent"; label: string; color: string; value: number }
+  | { type: "fixed";   label: string; color: string; value: number }
+  | { type: "topping"; label: string; color: string };
+
+const WHEEL_PRIZES: WheelPrize[] = [
+  { type: "none",    label: "No Luck!",   color: "#94a3b8" },
+  { type: "percent", label: "5% Off!",    color: "#60a5fa", value: 5  },
+  { type: "fixed",   label: "$1 Off!",    color: "#34d399", value: 1  },
+  { type: "percent", label: "10% Off!",   color: "#818cf8", value: 10 },
+  { type: "none",    label: "No Luck!",   color: "#94a3b8" },
+  { type: "percent", label: "15% Off!",   color: "#f59e0b", value: 15 },
+  { type: "fixed",   label: "$2 Off!",    color: "#f472b6", value: 2  },
+  { type: "topping", label: "Free Boba!", color: "#fb923c" },
+];
+
+const SEG_COUNT = WHEEL_PRIZES.length;
+const SEG_ANGLE = 360 / SEG_COUNT;
+
+function calcWheelDiscount(prize: WheelPrize, subtotal: number): number {
+  if (prize.type === "percent") return parseFloat((subtotal * prize.value / 100).toFixed(2));
+  if (prize.type === "fixed")   return prize.value;
+  if (prize.type === "topping") return 0.75;
+  return 0;
+}
+
+function SpinWheel({ subtotal, onResult }: {
+  subtotal: number;
+  onResult: (prize: WheelPrize, discount: number) => void;
+}) {
+  const [rotation, setRotation] = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const [prize, setPrize]       = useState<WheelPrize | null>(null);
+
+  const spin = () => {
+    if (spinning || prize) return;
+    const idx         = Math.floor(Math.random() * SEG_COUNT);
+    const centreAngle = idx * SEG_ANGLE + SEG_ANGLE / 2;
+    const align       = (360 - centreAngle % 360) % 360;
+    const base        = rotation % 360;
+    const next        = rotation + (5 * 360) + ((align - base + 360) % 360);
+    setSpinning(true);
+    setRotation(next);
+    setTimeout(() => {
+      const won = WHEEL_PRIZES[idx];
+      setPrize(won);
+      setSpinning(false);
+      onResult(won, calcWheelDiscount(won, subtotal));
+    }, 4000);
+  };
+
+  const cx = 150, cy = 150, r = 130;
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 z-10"
+          style={{ width: 0, height: 0,
+            borderLeft: "10px solid transparent", borderRight: "10px solid transparent",
+            borderTop: "22px solid #dc2626" }} />
+        <svg width="220" height="220" viewBox="0 0 300 300"
+          style={{
+            transform: `rotate(${rotation}deg)`,
+            transition: spinning ? "transform 4s cubic-bezier(0.2, 0.8, 0.3, 1)" : "none",
+          }}
+        >
+          {WHEEL_PRIZES.map((p, i) => {
+            const a1  = ((i * SEG_ANGLE - 90) * Math.PI) / 180;
+            const a2  = (((i + 1) * SEG_ANGLE - 90) * Math.PI) / 180;
+            const x1  = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+            const x2  = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+            const mid = ((i * SEG_ANGLE + SEG_ANGLE / 2 - 90) * Math.PI) / 180;
+            const tx  = cx + r * 0.65 * Math.cos(mid);
+            const ty  = cy + r * 0.65 * Math.sin(mid);
+            return (
+              <g key={i}>
+                <path d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2} Z`}
+                  fill={p.color} stroke="white" strokeWidth="2" />
+                <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
+                  fill="white" fontSize="12" fontWeight="bold"
+                  transform={`rotate(${i * SEG_ANGLE + SEG_ANGLE / 2}, ${tx}, ${ty})`}>
+                  {p.label}
+                </text>
+              </g>
+            );
+          })}
+          <circle cx={cx} cy={cy} r={18} fill="white" stroke="#e2e8f0" strokeWidth="2" />
+        </svg>
+      </div>
+      {prize ? (
+        <p className={`text-center text-sm font-bold px-4 py-2 rounded-xl ${
+          prize.type === "none"
+            ? "bg-slate-100 text-slate-600"
+            : "bg-green-50 border border-green-200 text-green-800"
+        }`}>
+          {prize.type === "none" ? "Better luck next time!" : `You won: ${prize.label}`}
+        </p>
+      ) : (
+        <button onClick={spin} disabled={spinning}
+          className="primary-btn px-8 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed">
+          {spinning ? "Spinning…" : "Spin for a Discount!"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function generateSurprise(allItems: MenuItem[], excluded: string[]) {
   const pool = allItems.filter((v, i, a) => a.findIndex(x => x.id === v.id) === i);
   if (pool.length === 0) return null;
@@ -573,6 +683,9 @@ export default function Customer() {
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
   const [redeem300, setRedeem300]               = useState(0);
   const [redeem100, setRedeem100]               = useState(0);
+  const [wheelPrize, setWheelPrize]             = useState<WheelPrize | null>(null);
+  const [wheelDiscount, setWheelDiscount]       = useState(0);
+  const [hasSpun, setHasSpun]                   = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState<{
     orderNumber: number;
     total: string;
@@ -594,6 +707,9 @@ export default function Customer() {
       setLookedUpCustomer(null);
       setRedeem300(0);
       setRedeem100(0);
+      setWheelPrize(null);
+      setWheelDiscount(0);
+      setHasSpun(false);
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -904,7 +1020,7 @@ export default function Customer() {
   const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
   const afterPointsTotal = Math.max(0, total - redeemDiscount);
   const promoDiscountAmt = appliedPromo ? parseFloat((afterPointsTotal * appliedPromo.discountPct / 100).toFixed(2)) : 0;
-  const adjustedTotal    = Math.max(0, afterPointsTotal - promoDiscountAmt);
+  const adjustedTotal    = Math.max(0, afterPointsTotal - promoDiscountAmt - wheelDiscount);
 
   const applyAllPoints = () => {
     const max300 = Math.floor(availablePoints / 300);
@@ -1447,6 +1563,24 @@ export default function Customer() {
                 {promoDiscountAmt > 0 && (
                   <p className="text-xs text-emerald-600 text-right">-${promoDiscountAmt.toFixed(2)} promo ({appliedPromo?.discountPct}% off)</p>
                 )}
+                {wheelDiscount > 0 && (
+                  <p className="text-xs text-emerald-600 text-right">-${wheelDiscount.toFixed(2)} spin discount ({wheelPrize?.label})</p>
+                )}
+
+                {/* Spin wheel — one spin per cart session */}
+                {!hasSpun && (
+                  <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                    <p className="text-sm font-semibold text-purple-800 mb-3 text-center">Spin for a discount on your order!</p>
+                    <SpinWheel
+                      subtotal={adjustedTotal}
+                      onResult={(prize, discount) => {
+                        setWheelPrize(prize);
+                        setWheelDiscount(discount);
+                        setHasSpun(true);
+                      }}
+                    />
+                  </div>
+                )}
                 {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
                   <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
                     <div className="flex items-center justify-between">
@@ -1525,6 +1659,7 @@ export default function Customer() {
                       redeem300: String(redeem300),
                       redeem100: String(redeem100),
                       promoCode: appliedPromo?.code ?? "",
+                      wheelDiscount: String(wheelDiscount),
                     };
                     if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
                       payload.customerId   = lookedUpCustomer.id;
