@@ -13,8 +13,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     return data({ error: "Missing q or tl param" }, { status: 400 });
   }
 
-  const params = new URLSearchParams({ client: "gtx", sl, tl, dt: "t", q: text });
-  const res = await fetch(`${GOOGLE_TRANSLATE_URL}?${params.toString()}`);
+const params = new URLSearchParams({
+  client: "gtx",
+  sl,
+  tl,
+  dt: "t",
+  q: text,
+});  
+const res = await fetch(`${GOOGLE_TRANSLATE_URL}?${params.toString()}`);
 
   if (!res.ok) {
     return data({ error: `Upstream error: ${res.status}` }, { status: 502 });
