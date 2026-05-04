@@ -3,7 +3,10 @@ export interface TranslationOptions {
   to: string;
 }
 
-export async function translateText(text: string, options: TranslationOptions): Promise<string> {
+export async function translateText(
+  text: string,
+  options: TranslationOptions
+): Promise<string> {
   try {
     const params = new URLSearchParams({
       q: text,
