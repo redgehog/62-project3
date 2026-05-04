@@ -7,6 +7,8 @@ export function meta() {
   return [{ title: "Order Status — Boba House" }];
 }
 
+const ORDER_STATUS_REFRESH_MS = 5000;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const orderNumber = parseInt(url.searchParams.get("n") ?? "0", 10);
@@ -33,7 +35,7 @@ export default function OrderStatus() {
 
   useEffect(() => {
     if (!order || order.status === "completed") return;
-    const id = setInterval(revalidate, 5000);
+    const id = setInterval(revalidate, ORDER_STATUS_REFRESH_MS);
     return () => clearInterval(id);
   }, [order, revalidate]);
 
