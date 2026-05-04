@@ -3,7 +3,10 @@ export interface TranslationOptions {
   to: string;
 }
 
-export async function translateText(text: string, options: TranslationOptions): Promise<string> {
+export async function translateText(
+  text: string,
+  options: TranslationOptions
+): Promise<string> {
   try {
     const params = new URLSearchParams({
       q: text,
@@ -43,4 +46,5 @@ export const MAJOR_LANGUAGES = {
   'Русский': 'ru',
 } as const;
 
-export type LanguageCode = typeof MAJOR_LANGUAGES[keyof typeof MAJOR_LANGUAGES];
+export type LanguageCode =
+  typeof MAJOR_LANGUAGES[keyof typeof MAJOR_LANGUAGES];

@@ -1,7 +1,6 @@
 import { SignIn, useClerk } from "@clerk/react-router";
 import { useEffect } from "react";
-import { Link } from "react-router";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/sign-in";
 
 export function meta({}: Route.MetaArgs) {

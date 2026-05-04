@@ -2,7 +2,7 @@ import { createCookieSessionStorage, redirect } from "react-router";
 
 const sessionSecret =
   process.env.SESSION_SECRET || "dev-session-secret-change-me";
-
+const CASHIER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 const cashierStorage = createCookieSessionStorage({
   cookie: {
     name: "__boba_cashier_access",
@@ -10,7 +10,7 @@ const cashierStorage = createCookieSessionStorage({
     path: "/",
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 8,
+    maxAge: CASHIER_SESSION_MAX_AGE_SECONDS,
     secrets: [sessionSecret],
   },
 });
