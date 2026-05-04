@@ -68,3 +68,16 @@ npm run start
 docker build -t boba-house-pos .
 docker run -p 3000:3000 boba-house-pos
 ```
+## Environment Variables
+
+The app expects database connection settings for local development.
+
+Common variables include:
+
+- `PGHOST`
+- `PGPORT`
+- `PGDATABASE`
+- `PGUSER`
+- `PGPASSWORD`
+- `WEATHERAPI_KEY`
+- `WEATHERAPI_LOCATION`
