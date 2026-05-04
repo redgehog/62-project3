@@ -401,6 +401,9 @@ export default function Manager() {
   const [editEmployee, setEditEmployee]         = useState<Employee | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [editCustomer, setEditCustomer]         = useState<CustomerRow | null>(null);
+  const [inventorySearch, setInventorySearch]   = useState("");
+  const [employeeSearch, setEmployeeSearch]     = useState("");
+  const [customerSearch, setCustomerSearch]     = useState("");
 
   // Close modals after add/edit; update report text when returned
   useEffect(() => {
@@ -474,7 +477,7 @@ export default function Manager() {
 
           {activeTab === "Inventory" && (
             <section aria-label="Inventory management">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-bold text-slate-900">{translatedUI.inventory}</h2>
                 <button
                   onClick={() => setShowAdd(true)}
@@ -483,6 +486,14 @@ export default function Manager() {
                   + Add Item
                 </button>
               </div>
+              <input
+                type="search"
+                placeholder="Search by name or category…"
+                value={inventorySearch}
+                onChange={e => setInventorySearch(e.target.value)}
+                className="field-input text-sm mb-4"
+                aria-label="Search inventory"
+              />
 
               <div className="section-card overflow-hidden mb-4">
                 <table className="w-full text-sm">
@@ -499,7 +510,10 @@ export default function Manager() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {inventory.map((item) => (
+                    {inventory.filter(item => {
+                      const q = inventorySearch.toLowerCase();
+                      return !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q);
+                    }).map((item) => (
                       <tr
                         key={item.id}
                         tabIndex={0}
@@ -640,7 +654,7 @@ export default function Manager() {
 
           {activeTab === "Employees" && (
             <section aria-label="Employee management">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-bold text-slate-900">Employees</h2>
                 <button
                   onClick={() => setShowAddEmployee(true)}
@@ -649,6 +663,14 @@ export default function Manager() {
                   + Add Employee
                 </button>
               </div>
+              <input
+                type="search"
+                placeholder="Search by name…"
+                value={employeeSearch}
+                onChange={e => setEmployeeSearch(e.target.value)}
+                className="field-input text-sm mb-4"
+                aria-label="Search employees"
+              />
 
               <div className="section-card overflow-hidden mb-4">
                 <table className="w-full text-sm">
@@ -661,7 +683,7 @@ export default function Manager() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {employees.map((emp) => (
+                    {employees.filter(emp => !employeeSearch || emp.name.toLowerCase().includes(employeeSearch.toLowerCase())).map((emp) => (
                       <tr
                         key={emp.id}
                         onClick={() => setSelectedEmployee(selectedEmployee === emp.id ? null : emp.id)}
@@ -703,7 +725,15 @@ export default function Manager() {
           {activeTab === "Customers" && (
             <section aria-label="Loyalty customers">
               <h2 className="text-lg font-bold text-slate-900 mb-1">Loyalty Members</h2>
-              <p className="text-sm text-slate-500 mb-4">Customers who have provided a phone number. Sorted by points balance.</p>
+              <p className="text-sm text-slate-500 mb-3">Customers who have provided a phone number. Sorted by points balance.</p>
+              <input
+                type="search"
+                placeholder="Search by name…"
+                value={customerSearch}
+                onChange={e => setCustomerSearch(e.target.value)}
+                className="field-input text-sm mb-4"
+                aria-label="Search customers"
+              />
               {customers.length === 0 ? (
                 <p className="text-sm text-slate-400">No loyalty members yet.</p>
               ) : (
@@ -719,7 +749,7 @@ export default function Manager() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {customers.map((c) => (
+                      {customers.filter(c => !customerSearch || (c.name ?? "").toLowerCase().includes(customerSearch.toLowerCase())).map((c) => (
                         <tr
                           key={c.id}
                           onClick={() => setSelectedCustomer(selectedCustomer === c.id ? null : c.id)}
