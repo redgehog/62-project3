@@ -1,8 +1,11 @@
 import { data } from "react-router";
 
+
+const DEFAULT_WEATHER_LOCATION = "College Station, TX";
+
 export async function loader() {
   const key = process.env.WEATHERAPI_KEY;
-  const location = process.env.WEATHERAPI_LOCATION ?? "College Station, TX";
+  const location = process.env.WEATHERAPI_LOCATION ?? DEFAULT_WEATHER_LOCATION;
 
   if (!key) {
     return data({ error: "WEATHERAPI_KEY not configured" }, { status: 500 });
