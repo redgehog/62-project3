@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useRef } from "react";
 import { Form, redirect, useLoaderData, useNavigate, useFetcher } from "react-router";
 import type { Route } from "./+types/cashier";
 import pool from "../db.server";
@@ -416,6 +416,7 @@ export default function Cashier() {
   const [redeem100, setRedeem100]               = useState(0);
   const [surpriseExcluded, setSurpriseExcluded] = useState<string[]>([]);
   const [surpriseResult,   setSurpriseResult]   = useState<ReturnType<typeof generateSurprise>>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
   const [orderConfirmation, setOrderConfirmation] = useState<{
     orderNumber: number;
     total: string;
@@ -480,6 +481,7 @@ export default function Cashier() {
 
   useEffect(() => {
     if (!selectedItem) return;
+    modalRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") closePopup(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -677,7 +679,7 @@ export default function Cashier() {
         </button>
       </nav>
 
-      <div className="flex-1 page-section w-full flex overflow-hidden px-4 py-5 gap-4">
+      <main className="flex-1 page-section w-full flex overflow-hidden px-4 py-5 gap-4" aria-label="Cashier workspace">
         {/* Menu grid */}
         <div className="flex-1 section-card p-5 overflow-y-auto">
           <div className="mb-4">
@@ -830,6 +832,7 @@ export default function Cashier() {
                 <button
                   key={item.id}
                   onClick={() => openItem(item)}
+                  aria-label={`${item.name}, $${item.price.toFixed(2)}${item.allergens.length ? `, contains ${item.allergens.join(", ")}` : ""}`}
                   className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
                 >
                   <p className="text-sm font-semibold text-slate-900">{item.name}</p>
@@ -854,7 +857,7 @@ export default function Cashier() {
         </div>
 
         {/* Order summary */}
-        <aside className="w-72 section-card bg-white/90 backdrop-blur flex flex-col shrink-0">
+        <aside aria-label="Order summary" className="w-72 section-card bg-white/90 backdrop-blur flex flex-col shrink-0">
           <div className="px-4 py-3 border-b border-slate-200 shrink-0">
             <h2 className="text-sm font-semibold text-slate-700">Order Summary</h2>
           </div>
@@ -903,9 +906,10 @@ export default function Cashier() {
             {/* Checkout fields */}
             <div className="border-t border-slate-200 pt-3 space-y-2">
             <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-slate-600">Phone Number</span>
+              <label htmlFor="cashier-phone" className="block text-xs font-medium text-slate-600">Phone Number</label>
               <div className="flex gap-2">
                 <input
+                  id="cashier-phone"
                   type="tel"
                   value={customerPhone}
                   onChange={e => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
@@ -1027,7 +1031,7 @@ export default function Cashier() {
                 <span>-${promoDiscountAmt.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
+            <div aria-live="polite" aria-atomic="true" className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
               <span>Total</span><span>${adjustedTotal.toFixed(2)}</span>
             </div>
             <button
@@ -1045,7 +1049,7 @@ export default function Cashier() {
             </div>{/* end checkout fields */}
           </div>{/* end scrollable */}
         </aside>
-      </div>
+      </main>
 
       <footer className="soft-footer px-6 py-1.5">
         <p className="text-xs">Cashier — click an item to customize and add to order</p>
@@ -1101,13 +1105,13 @@ export default function Cashier() {
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={`Customize ${selectedItem.name}`}
+          aria-labelledby="cashier-customize-title"
           onClick={e => { if (e.target === e.currentTarget) closePopup(); }}
         >
-          <div className="surface-card w-full max-w-md p-6 overflow-y-auto max-h-[90vh]">
+          <div ref={modalRef} tabIndex={-1} className="surface-card w-full max-w-md p-6 overflow-y-auto max-h-[90vh] focus:outline-none">
             <div className="flex items-start justify-between mb-5">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
+                <h2 id="cashier-customize-title" className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
                 <p className="text-slate-500 text-sm mt-0.5">${modalPrice.toFixed(2)}</p>
                 {selectedItem.description && (
                   <p className="text-xs text-slate-400 mt-1.5 leading-snug max-w-[240px]">{selectedItem.description}</p>

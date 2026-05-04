@@ -1,5 +1,5 @@
 // Customer ordering kiosk
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useRef } from "react";
 import { useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/customer";
 import pool from "../db.server";
@@ -1048,6 +1048,11 @@ export default function Customer() {
     ? parseFloat((selectedItem.price + modalSizeUpcharge + selectedToppings.length * 0.75).toFixed(2))
     : 0;
 
+  const modalRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedItem) modalRef.current?.focus();
+  }, [selectedItem]);
+
   return (
     <div className="h-screen flex flex-col app-shell">
       <header className="app-header px-6 py-4 shrink-0">
@@ -1092,18 +1097,20 @@ export default function Customer() {
       </header>
 
       {/* Top-level tab strip */}
-      <div className="bg-white border-b border-slate-200 flex shrink-0">
+      <div role="tablist" aria-label="Order mode" className="bg-white border-b border-slate-200 flex shrink-0">
         <button
+          role="tab"
+          aria-selected={!oaActive}
           onClick={() => setOaActive(false)}
-          aria-pressed={!oaActive}
           className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors focus:outline-none
             ${!oaActive ? "border-indigo-600 text-indigo-700 bg-indigo-50" : "border-transparent text-slate-600 hover:bg-slate-50"}`}
         >
           Order Now
         </button>
         <button
+          role="tab"
+          aria-selected={oaActive}
           onClick={() => { setOaActive(true); setOaStep("schedule"); }}
-          aria-pressed={oaActive}
           className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors focus:outline-none
             ${oaActive ? "border-purple-600 text-purple-700 bg-purple-50" : "border-transparent text-slate-600 hover:bg-slate-50"}`}
         >
@@ -1111,7 +1118,7 @@ export default function Customer() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto page-section w-full px-4 py-5">
+      <main className="flex-1 overflow-y-auto page-section w-full px-4 py-5" aria-label="Customer ordering">
         {/* ── ORDER AHEAD PHONE UI ─────────────────────────────────── */}
         {oaActive ? (
           <div className="flex justify-center py-4">
@@ -1559,7 +1566,7 @@ export default function Customer() {
                   )}
                 </div>
 
-                <div className="mt-3 flex items-center justify-between font-bold text-slate-900 text-base">
+                <div aria-live="polite" aria-atomic="true" className="mt-3 flex items-center justify-between font-bold text-slate-900 text-base">
                   <span>{translatedUI.total}</span><span>${adjustedTotal.toFixed(2)}</span>
                 </div>
                 {redeemDiscount > 0 && (
@@ -1636,9 +1643,10 @@ export default function Customer() {
                   </div>
                 )}
                 <div className="mt-4 space-y-2">
-                  <span className="block text-xs font-medium text-slate-600">{translatedUI.phoneLabel}</span>
+                  <label htmlFor="customer-phone" className="block text-xs font-medium text-slate-600">{translatedUI.phoneLabel}</label>
                   <div className="flex gap-2">
                     <input
+                      id="customer-phone"
                       type="tel"
                       value={customerPhone}
                       onChange={e => { setCustomerPhone(e.target.value); setLookedUpCustomer(null); }}
@@ -1721,8 +1729,8 @@ export default function Customer() {
             </div>
 
             {/* Allergen filter */}
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-xs font-semibold text-amber-800 mb-2">{translatedUI.allergenFilter}</p>
+            <div role="group" aria-label="Filter allergens" className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs font-semibold text-amber-800 mb-2" id="allergen-filter-label">{translatedUI.allergenFilter}</p>
               <div className="flex flex-wrap gap-2">
                 {ALL_ALLERGENS.map(allergen => {
                   const blocked = blockedAllergens.includes(allergen);
@@ -1758,6 +1766,8 @@ export default function Customer() {
 
             <div className="mb-5">
               <div
+                role="group"
+                aria-label="Menu categories"
                 className="grid gap-2 w-full"
                 style={{ gridTemplateColumns: `repeat(${translatedCategories.length + 1}, minmax(0, 1fr))` }}
               >
@@ -1901,6 +1911,7 @@ export default function Customer() {
                       <button
                         key={item.id}
                         onClick={() => openItem(item)}
+                        aria-label={`${item.name}, $${item.price.toFixed(2)}${item.allergens.length ? `, contains ${item.allergens.join(", ")}` : ""}`}
                         className="section-card p-5 text-left hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
                       >
                         <p className="text-sm font-semibold text-slate-900">{item.name}</p>
@@ -1931,7 +1942,7 @@ export default function Customer() {
             )}
           </div>
         )}
-      </div>
+      </main>
 
       <footer className="soft-footer px-6 py-1.5 shrink-0">
         <p className="text-xs">{translatedUI.footer}</p>
@@ -2056,13 +2067,13 @@ export default function Customer() {
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={`Customize ${selectedItem.name}`}
+          aria-labelledby="customize-modal-title"
           onClick={e => { if (e.target === e.currentTarget) closePopup(); }}
         >
-          <div className="surface-card w-full max-w-md p-6 overflow-y-auto max-h-[90vh]">
+          <div ref={modalRef} tabIndex={-1} className="surface-card w-full max-w-md p-6 overflow-y-auto max-h-[90vh] focus:outline-none">
             <div className="flex items-start justify-between mb-5">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
+                <h2 id="customize-modal-title" className="text-xl font-bold text-slate-900">{selectedItem.name}</h2>
                 <p className="text-slate-500 text-sm mt-0.5">${modalPrice.toFixed(2)}</p>
                 {selectedItem.description && (
                   <p className="text-xs text-slate-400 mt-1.5 leading-snug max-w-[240px]">{selectedItem.description}</p>
@@ -2084,8 +2095,8 @@ export default function Customer() {
             </div>
 
             {/* Size */}
-            <div className="mb-5">
-              <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.size}</p>
+            <div role="group" aria-label={translatedUI.size} className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2" aria-hidden="true">{translatedUI.size}</p>
               <div className="grid grid-cols-2 gap-2">
                 {SIZES.map(s => (
                   <button
@@ -2179,8 +2190,8 @@ export default function Customer() {
             )}
 
             {/* Toppings */}
-            <div className="mb-5">
-              <p className="text-sm font-semibold text-slate-700 mb-2">{translatedUI.toppings} <span className="text-slate-400 font-normal">{translatedUI.toppingPrice}</span></p>
+            <div role="group" aria-label={translatedUI.toppings} className="mb-5">
+              <p className="text-sm font-semibold text-slate-700 mb-2" aria-hidden="true">{translatedUI.toppings} <span className="text-slate-400 font-normal">{translatedUI.toppingPrice}</span></p>
               <div className="grid grid-cols-2 gap-2">
                 {translatedToppings.map((topping) => {
                   const hasBlocked = topping.allergens.some(a => blockedAllergens.includes(a));

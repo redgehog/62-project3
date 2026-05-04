@@ -30,26 +30,29 @@ export default function Portal() {
       </header>
 
       {/* Card */}
-      <div className="flex-1 px-4 py-8">
+      <main className="flex-1 px-4 py-8" aria-label="Portal">
         <div className="page-section">
           <div className="mb-6">
             <h2 className="section-title">Portal</h2>
             <p className="section-description">Select a workspace to get started.</p>
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
-            {PORTAL_LINKS.map(({ label, path, description }) => (
-              <button
-                key={path}
-                onClick={() => navigate(path)}
-                className="section-card p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer"
-              >
-                <p className="text-base font-semibold text-slate-900">{label}</p>
-                <p className="text-sm text-slate-500 mt-1">{description}</p>
-              </button>
-            ))}
-          </div>
+          <nav aria-label="Workspaces">
+            <div className="grid md:grid-cols-2 gap-4">
+              {PORTAL_LINKS.map(({ label, path, description }) => (
+                <button
+                  key={path}
+                  onClick={() => navigate(path)}
+                  aria-label={`${label}: ${description}`}
+                  className="section-card p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer"
+                >
+                  <p className="text-base font-semibold text-slate-900">{label}</p>
+                  <p className="text-sm text-slate-500 mt-1">{description}</p>
+                </button>
+              ))}
+            </div>
+          </nav>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
