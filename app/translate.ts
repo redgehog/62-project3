@@ -46,4 +46,5 @@ export const MAJOR_LANGUAGES = {
   'Русский': 'ru',
 } as const;
 
-export type LanguageCode = typeof MAJOR_LANGUAGES[keyof typeof MAJOR_LANGUAGES];
+export type LanguageCode =
+  typeof MAJOR_LANGUAGES[keyof typeof MAJOR_LANGUAGES];
