@@ -18,9 +18,9 @@ export function useSpeechToText(onResult: (transcript: string) => void) {
     rec.interimResults = false;
     rec.maxAlternatives = 1;
 
-    rec.onstart  = () => setListening(true);
-    rec.onend    = () => setListening(false);
-    rec.onerror  = () => setListening(false);
+    rec.onstart = () => setListening(true);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
     rec.onresult = (e: SpeechRecognitionEvent) => {
       onResult(e.results[0][0].transcript);
     };
