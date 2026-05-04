@@ -362,6 +362,7 @@ export default function Cashier() {
   }, []);
 
   const [activeCategory, setActiveCategory]     = useState(() => categories[0] ?? "");
+  const [itemSearch, setItemSearch]             = useState("");
   const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
   const [translatedCategories, setTranslatedCategories] = useState(categories);
   const [translatedMilkTypes, setTranslatedMilkTypes]   = useState(MILK_TYPES);
@@ -652,7 +653,7 @@ export default function Cashier() {
         {categories.map(cat => (
           <button
             key={cat}
-            onClick={() => setActiveCategory(cat)}
+            onClick={() => { setActiveCategory(cat); setItemSearch(""); }}
             aria-pressed={activeCategory === cat}
             className={`flex-1 min-w-max py-3 px-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
               ${activeCategory === cat
@@ -664,7 +665,7 @@ export default function Cashier() {
           </button>
         ))}
         <button
-          onClick={() => setActiveCategory("__surprise__")}
+          onClick={() => { setActiveCategory("__surprise__"); setItemSearch(""); }}
           aria-pressed={activeCategory === "__surprise__"}
           className={`flex-1 min-w-max py-3 px-4 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 whitespace-nowrap
             ${activeCategory === "__surprise__"
@@ -812,8 +813,20 @@ export default function Cashier() {
               </div>
             </div>
 
+            <input
+              type="search"
+              placeholder="Search drinks…"
+              value={itemSearch}
+              onChange={e => setItemSearch(e.target.value)}
+              className="field-input text-sm mb-4"
+              aria-label="Search drinks in this category"
+            />
+
             <div className="grid grid-cols-3 gap-3">
-              {items.filter(item => !item.allergens.some(a => blockedAllergens.includes(a))).map(item => (
+              {items.filter(item =>
+                !item.allergens.some(a => blockedAllergens.includes(a)) &&
+                (!itemSearch || item.name.toLowerCase().includes(itemSearch.toLowerCase()))
+              ).map(item => (
                 <button
                   key={item.id}
                   onClick={() => openItem(item)}

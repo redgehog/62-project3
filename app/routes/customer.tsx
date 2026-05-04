@@ -675,6 +675,7 @@ export default function Customer() {
   const setLanguage = translationContext?.setLanguage ?? (() => {});
 
   const [activeCategory, setActiveCategory]     = useState(0);
+  const [itemSearch, setItemSearch]             = useState("");
   const [blockedAllergens, setBlockedAllergens] = useState<string[]>([]);
   const [cart, setCart]                         = useState<CartItem[]>([]);
   const [showCart, setShowCart]                 = useState(false);
@@ -1763,7 +1764,7 @@ export default function Customer() {
                 {translatedCategories.map((cat, i) => (
                   <button
                     key={i}
-                    onClick={() => { setActiveCategory(i); setShowCart(false); }}
+                    onClick={() => { setActiveCategory(i); setShowCart(false); setItemSearch(""); }}
                     aria-pressed={activeCategory === i}
                     className={`px-3 py-2.5 rounded-lg text-sm font-semibold text-center transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500
                       ${activeCategory === i ? "bg-indigo-600 text-white shadow-sm" : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200"}`}
@@ -1772,7 +1773,7 @@ export default function Customer() {
                   </button>
                 ))}
                 <button
-                  onClick={() => { setActiveCategory(translatedCategories.length); setShowCart(false); }}
+                  onClick={() => { setActiveCategory(translatedCategories.length); setShowCart(false); setItemSearch(""); }}
                   aria-pressed={activeCategory === translatedCategories.length}
                   className={`px-3 py-2.5 rounded-lg text-sm font-semibold text-center transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500
                     ${activeCategory === translatedCategories.length ? "bg-purple-600 text-white shadow-sm" : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200"}`}
@@ -1881,9 +1882,21 @@ export default function Customer() {
                   <h3 className="text-base font-semibold text-slate-900">{translatedCurrentCategory}</h3>
                   <p className="section-description">{translatedUI.availableItems}</p>
                 </div>
+                <input
+                  type="search"
+                  placeholder="Search drinks…"
+                  value={itemSearch}
+                  onChange={e => setItemSearch(e.target.value)}
+                  className="field-input text-sm mb-4"
+                  aria-label="Search drinks in this category"
+                />
+
                 <div className="grid grid-cols-4 gap-3">
                   {items
-                    .filter(item => !item.allergens.some(a => blockedAllergens.includes(a)))
+                    .filter(item =>
+                      !item.allergens.some(a => blockedAllergens.includes(a)) &&
+                      (!itemSearch || item.name.toLowerCase().includes(itemSearch.toLowerCase()))
+                    )
                     .map(item => (
                       <button
                         key={item.id}
