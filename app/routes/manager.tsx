@@ -511,7 +511,7 @@ export default function Manager() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {inventory.filter(item => {
-                      const q = inventorySearch.toLowerCase();
+                      const q = inventorySearch.trim().toLowerCase();
                       return !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q);
                     }).map((item) => (
                       <tr
@@ -683,7 +683,7 @@ export default function Manager() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {employees.filter(emp => !employeeSearch || emp.name.toLowerCase().includes(employeeSearch.toLowerCase())).map((emp) => (
+                    {employees.filter(emp => !employeeSearch.trim() || emp.name.toLowerCase().includes(employeeSearch.trim().toLowerCase())).map((emp) => (
                       <tr
                         key={emp.id}
                         onClick={() => setSelectedEmployee(selectedEmployee === emp.id ? null : emp.id)}
@@ -749,7 +749,7 @@ export default function Manager() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {customers.filter(c => !customerSearch || (c.name ?? "").toLowerCase().includes(customerSearch.toLowerCase())).map((c) => (
+                      {customers.filter(c => !customerSearch.trim() || (c.name ?? "").toLowerCase().includes(customerSearch.trim().toLowerCase())).map((c) => (
                         <tr
                           key={c.id}
                           onClick={() => setSelectedCustomer(selectedCustomer === c.id ? null : c.id)}

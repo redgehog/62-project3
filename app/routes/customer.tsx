@@ -1905,7 +1905,7 @@ export default function Customer() {
                   {items
                     .filter(item =>
                       !item.allergens.some(a => blockedAllergens.includes(a)) &&
-                      (!itemSearch || item.name.toLowerCase().includes(itemSearch.toLowerCase()))
+                      (!itemSearch.trim() || item.name.toLowerCase().includes(itemSearch.trim().toLowerCase()))
                     )
                     .map(item => (
                       <button
