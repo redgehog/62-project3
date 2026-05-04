@@ -15,9 +15,11 @@ export function receiptQrData(opts: {
   total: string;
   scheduledFor?: string;
 }): string {
-  const date = new Date().toLocaleDateString("en-US", {
-    month:"short", day:"numeric", year:"numeric",
-  });
+const date = new Date().toLocaleDateString("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
   return [
     "BOBA HOUSE",
     `Order #${opts.orderNumber}`,
