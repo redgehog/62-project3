@@ -6,7 +6,6 @@ import pool from "../db.server";
 import type { PoolClient } from "pg";
 import { translateText, MAJOR_LANGUAGES, type LanguageCode } from "../translate";
 import { applyTax } from "../lib/pricing";
-import { useSpeechToText } from "../lib/useSpeechToText";
 import { qrCodeUrl } from "../lib/qr";
 import { TranslationContext } from "../root";
 
@@ -685,6 +684,7 @@ export default function Customer() {
   const [redeem100, setRedeem100]               = useState(0);
   const [wheelPrize, setWheelPrize]             = useState<WheelPrize | null>(null);
   const [wheelDiscount, setWheelDiscount]       = useState(0);
+  const [wheelDiscountApplied, setWheelDiscountApplied] = useState(false);
   const [hasSpun, setHasSpun]                   = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState<{
     orderNumber: number;
@@ -709,6 +709,7 @@ export default function Customer() {
       setRedeem100(0);
       setWheelPrize(null);
       setWheelDiscount(0);
+      setWheelDiscountApplied(false);
       setHasSpun(false);
     }
   }, [fetcher.state, fetcher.data]);
@@ -840,7 +841,6 @@ export default function Customer() {
     return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
   };
   const [chatInput, setChatInput] = useState("");
-  const chatSpeech = useSpeechToText((t) => setChatInput(prev => prev ? `${prev} ${t}` : t));
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: "assistant", text: "Hi! I can help with menu questions and ordering." },
   ]);
@@ -1010,7 +1010,9 @@ export default function Customer() {
     setEditCartKey(null);
   };
 
-  const removeFromCart = (cartKey: string) => setCart(prev => prev.filter(c => c.cartKey !== cartKey));
+  const removeFromCart  = (cartKey: string) => setCart(prev => prev.filter(c => c.cartKey !== cartKey));
+  const updateCartQty   = (cartKey: string, delta: number) =>
+    setCart(prev => prev.map(c => c.cartKey === cartKey ? { ...c, qty: c.qty + delta } : c).filter(c => c.qty > 0));
 
   const totalItems      = cart.reduce((s, c) => s + c.qty, 0);
   const total           = cart.reduce((s, c) => s + c.price * c.qty, 0);
@@ -1019,8 +1021,9 @@ export default function Customer() {
   const remainingPoints = availablePoints - pointsUsed;
   const redeemDiscount  = redeem300 * 4 + redeem100 * 1;
   const afterPointsTotal = Math.max(0, total - redeemDiscount);
-  const promoDiscountAmt = appliedPromo ? parseFloat((afterPointsTotal * appliedPromo.discountPct / 100).toFixed(2)) : 0;
-  const adjustedTotal    = Math.max(0, afterPointsTotal - promoDiscountAmt - wheelDiscount);
+  const promoDiscountAmt   = appliedPromo ? parseFloat((afterPointsTotal * appliedPromo.discountPct / 100).toFixed(2)) : 0;
+  const wheelDiscountActive = wheelDiscountApplied ? wheelDiscount : 0;
+  const adjustedTotal      = Math.max(0, afterPointsTotal - promoDiscountAmt - wheelDiscountActive);
 
   const applyAllPoints = () => {
     const max300 = Math.floor(availablePoints / 300);
@@ -1103,7 +1106,7 @@ export default function Customer() {
           className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors focus:outline-none
             ${oaActive ? "border-purple-600 text-purple-700 bg-purple-50" : "border-transparent text-slate-600 hover:bg-slate-50"}`}
         >
-          📅 Order Ahead
+          Order Ahead
         </button>
       </div>
 
@@ -1510,48 +1513,49 @@ export default function Customer() {
                           ].filter(Boolean).join(" · ")}
                         </p>
                       </div>
-                      <span className="flex items-center gap-2 text-slate-700 shrink-0 ml-3">
-                        <span>${(item.price * item.qty).toFixed(2)}</span>
-                        <button
-                          onClick={() => openItemForEdit(item)}
-                          aria-label={`Edit ${item.name}`}
-                          className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5"
-                        >
-                          ✎
-                        </button>
-                        <button
-                          onClick={() => removeFromCart(item.cartKey)}
-                          aria-label={`Remove ${item.name}`}
-                          className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded"
-                        >
-                          ✕
-                        </button>
+                      <span className="flex items-center gap-1 text-slate-700 shrink-0 ml-3">
+                        <button onClick={() => updateCartQty(item.cartKey, -1)} aria-label="Decrease"
+                          className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center focus:outline-none">−</button>
+                        <span className="text-xs w-4 text-center">{item.qty}</span>
+                        <button onClick={() => updateCartQty(item.cartKey, 1)} aria-label="Increase"
+                          className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center focus:outline-none">+</button>
+                        <span className="text-xs ml-1">${(item.price * item.qty).toFixed(2)}</span>
+                        <button onClick={() => openItemForEdit(item)} aria-label={`Edit ${item.name}`}
+                          className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5">✎</button>
+                        <button onClick={() => removeFromCart(item.cartKey)} aria-label={`Remove ${item.name}`}
+                          className="text-slate-400 hover:text-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 rounded">✕</button>
                       </span>
                     </div>
                   ))}
                 </div>
-                {/* Promo code */}
+                {/* Promo code — disabled when wheel discount is active */}
                 <div className="mt-4 space-y-1.5">
                   <span className="block text-xs font-medium text-slate-600">Promo Code</span>
-                  <div className="flex gap-2">
-                    <input type="text" value={appliedPromo ? appliedPromo.code : promoInput}
-                      onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
-                      disabled={!!appliedPromo} placeholder="e.g. BOBA10"
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 disabled:text-slate-500" />
-                    {appliedPromo ? (
-                      <button type="button" onClick={() => { setAppliedPromo(null); setPromoInput(""); }}
-                        className="secondary-btn px-3 py-2 text-xs">Remove</button>
-                    ) : (
-                      <button type="button"
-                        onClick={() => promoFetcher.submit({ intent: "verify-promo", code: promoInput }, { method: "post" })}
-                        disabled={!promoInput.trim() || promoFetcher.state !== "idle"}
-                        className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
-                        {promoFetcher.state !== "idle" ? "…" : "Apply"}
-                      </button>
-                    )}
-                  </div>
-                  {appliedPromo && <p className="text-xs text-emerald-600 font-medium">{appliedPromo.discountPct}% off applied</p>}
-                  {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+                  {wheelDiscountApplied ? (
+                    <p className="text-xs text-amber-600">Remove the spin discount to use a promo code.</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <input type="text" value={appliedPromo ? appliedPromo.code : promoInput}
+                          onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
+                          disabled={!!appliedPromo} placeholder="e.g. BOBA10"
+                          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-50 disabled:text-slate-500" />
+                        {appliedPromo ? (
+                          <button type="button" onClick={() => { setAppliedPromo(null); setPromoInput(""); }}
+                            className="secondary-btn px-3 py-2 text-xs">Remove</button>
+                        ) : (
+                          <button type="button"
+                            onClick={() => promoFetcher.submit({ intent: "verify-promo", code: promoInput }, { method: "post" })}
+                            disabled={!promoInput.trim() || promoFetcher.state !== "idle"}
+                            className="secondary-btn px-3 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                            {promoFetcher.state !== "idle" ? "…" : "Apply"}
+                          </button>
+                        )}
+                      </div>
+                      {appliedPromo && <p className="text-xs text-emerald-600 font-medium">{appliedPromo.discountPct}% off applied</p>}
+                      {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-3 flex items-center justify-between font-bold text-slate-900 text-base">
@@ -1563,12 +1567,12 @@ export default function Customer() {
                 {promoDiscountAmt > 0 && (
                   <p className="text-xs text-emerald-600 text-right">-${promoDiscountAmt.toFixed(2)} promo ({appliedPromo?.discountPct}% off)</p>
                 )}
-                {wheelDiscount > 0 && (
-                  <p className="text-xs text-emerald-600 text-right">-${wheelDiscount.toFixed(2)} spin discount ({wheelPrize?.label})</p>
+                {wheelDiscountActive > 0 && (
+                  <p className="text-xs text-emerald-600 text-right">-${wheelDiscountActive.toFixed(2)} spin discount ({wheelPrize?.label})</p>
                 )}
 
                 {/* Spin wheel — one spin per cart session */}
-                {!hasSpun && (
+                {!hasSpun && !appliedPromo && (
                   <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
                     <p className="text-sm font-semibold text-purple-800 mb-3 text-center">Spin for a discount on your order!</p>
                     <SpinWheel
@@ -1577,8 +1581,26 @@ export default function Customer() {
                         setWheelPrize(prize);
                         setWheelDiscount(discount);
                         setHasSpun(true);
+                        if (prize.type !== "none") setWheelDiscountApplied(true);
                       }}
                     />
+                  </div>
+                )}
+                {/* Re-apply / remove wheel discount after spinning */}
+                {hasSpun && wheelPrize && wheelPrize.type !== "none" && (
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5">
+                    <span className="text-xs font-semibold text-purple-700">Spin reward: {wheelPrize.label}</span>
+                    {wheelDiscountApplied ? (
+                      <button type="button" onClick={() => setWheelDiscountApplied(false)}
+                        className="text-xs text-slate-500 hover:text-red-600 font-medium focus:outline-none">Remove</button>
+                    ) : (
+                      <button type="button"
+                        onClick={() => { setWheelDiscountApplied(true); setAppliedPromo(null); setPromoInput(""); }}
+                        disabled={!!appliedPromo}
+                        className="text-xs text-purple-700 hover:text-purple-900 font-semibold focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed">
+                        {appliedPromo ? "Remove promo first" : "Re-apply discount"}
+                      </button>
+                    )}
                   </div>
                 )}
                 {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
@@ -1659,7 +1681,7 @@ export default function Customer() {
                       redeem300: String(redeem300),
                       redeem100: String(redeem100),
                       promoCode: appliedPromo?.code ?? "",
-                      wheelDiscount: String(wheelDiscount),
+                      wheelDiscount: String(wheelDiscountApplied ? wheelDiscount : 0),
                     };
                     if (lookedUpCustomer && lookedUpCustomer !== "not-found") {
                       payload.customerId   = lookedUpCustomer.id;
@@ -1995,23 +2017,12 @@ export default function Customer() {
                   placeholder="Ask about drinks, toppings, allergens..."
                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
-                {chatSpeech.supported && (
-                  <button type="button" onClick={chatSpeech.toggle}
-                    aria-label={chatSpeech.listening ? "Stop recording" : "Speak your question"}
-                    className={`px-3 py-2 rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500
-                      ${chatSpeech.listening ? "bg-red-100 text-red-600 animate-pulse" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                    🎤
-                  </button>
-                )}
                 <button type="button" onClick={sendChatMessage}
                   disabled={!chatInput.trim() || chatFetcher.state !== "idle"}
                   className="primary-btn px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed">
                   Send
                 </button>
               </div>
-              {chatSpeech.listening && (
-                <p className="text-[10px] text-red-500 mt-1.5 text-center animate-pulse">Listening… speak now</p>
-              )}
             </div>
           </div>
         ) : (

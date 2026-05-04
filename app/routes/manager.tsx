@@ -25,6 +25,8 @@ interface Employee {
   id:         string;
   name:       string;
   start_date: string;
+  hasPin:     boolean;
+  pin:        string;
 }
 
 interface CustomerRow {
@@ -45,7 +47,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
        FROM "Item" ORDER BY category, name`
     ),
     pool.query(
-      `SELECT employee_id::text AS id, name, start_date::text
+      `SELECT employee_id::text AS id, name, start_date::text,
+              COALESCE(pin, '') AS pin,
+              (pin IS NOT NULL AND pin <> '') AS "hasPin"
        FROM "Employee" ORDER BY name`
     ),
     pool.query(
@@ -137,7 +141,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   if (intent === "x-report") {
     const today = new Date().toISOString().slice(0, 10);
     const hourly = await pool.query(
-      `SELECT EXTRACT(HOUR FROM event_time)::int AS hr,
+      `SELECT EXTRACT(HOUR FROM event_time AT TIME ZONE 'America/Chicago')::int AS hr,
               COUNT(*)::int AS sales_count,
               COALESCE(SUM(amount), 0)::float AS sales_total,
               COALESCE(SUM(tax_amount), 0)::float AS tax_total
@@ -216,6 +220,46 @@ export async function action({ request, context }: Route.ActionArgs) {
     return { ok: true, report: reportText + "\n\nX/Z counters reset for next business day." };
   }
 
+  if (intent === "set-pin") {
+    const id  = formData.get("id")  as string;
+    const pin = String(formData.get("pin") || "").trim();
+    if (!pin || !/^\d{4,8}$/.test(pin)) return { ok: false, error: "PIN must be 4–8 digits" };
+    await pool.query(`UPDATE "Employee" SET pin = $1 WHERE employee_id = $2::uuid`, [pin, id]);
+    return { ok: true };
+  }
+
+  if (intent === "z-report-reset") {
+    const pin   = String(formData.get("pin") || "").trim();
+    const today = new Date().toISOString().slice(0, 10);
+    if (pin !== "1234") return { ok: true, report: "ERROR: Incorrect master PIN." };
+
+    await pool.query(`DELETE FROM pos_z_report WHERE report_date = $1`, [today]);
+    await pool.query(`DELETE FROM pos_sales_activity WHERE business_date = $1`, [today]);
+
+    const orders = await pool.query(
+      `SELECT o.order_id, o.date, o.total_price,
+              COALESCE(SUM(oi.quantity), 0)::int AS item_count,
+              COALESCE(SUM(oi.quantity * oi.unit_price), 0)::numeric AS subtotal
+       FROM "Order" o
+       LEFT JOIN "Order_Item" oi ON oi.order_id = o.order_id
+       WHERE o.date::date = $1 AND o.status NOT IN ('scheduled')
+       GROUP BY o.order_id, o.date, o.total_price ORDER BY o.date`,
+      [today]
+    );
+    for (const row of orders.rows) {
+      const total = parseFloat(row.total_price);
+      const sub   = parseFloat(row.subtotal);
+      const tax   = Math.max(0, total - sub).toFixed(2);
+      await pool.query(
+        `INSERT INTO pos_sales_activity
+         (activity_id, business_date, event_time, activity_type, order_id, amount, tax_amount, payment_method, item_count)
+         VALUES (gen_random_uuid(), $1, $2, 'SALE', $3, $4, $5, 'Cash', $6)`,
+        [today, row.date, row.order_id, total.toFixed(2), tax, row.item_count]
+      );
+    }
+    return { ok: true, report: `Z-report reset. Rebuilt ${orders.rows.length} sale entries from today's orders.\nYou can now run the X-report and regenerate the Z-report.` };
+  }
+
   if (intent === "add-employee") {
     const name       = formData.get("name") as string;
     const start_date = formData.get("start_date") as string;
@@ -230,22 +274,42 @@ export async function action({ request, context }: Route.ActionArgs) {
     const id         = formData.get("id") as string;
     const name       = formData.get("name") as string;
     const start_date = formData.get("start_date") as string;
-    await pool.query(
-      `UPDATE "Employee" SET name = $1, start_date = $2 WHERE employee_id = $3::uuid`,
-      [name, start_date, id]
-    );
+    const pin        = String(formData.get("pin") || "").trim();
+    if (pin) {
+      if (!/^\d{4,8}$/.test(pin)) return { ok: false, error: "PIN must be 4–8 digits" };
+      await pool.query(
+        `UPDATE "Employee" SET name = $1, start_date = $2, pin = $3 WHERE employee_id = $4::uuid`,
+        [name, start_date, pin, id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE "Employee" SET name = $1, start_date = $2 WHERE employee_id = $3::uuid`,
+        [name, start_date, id]
+      );
+    }
     return { ok: true };
   }
 
   if (intent === "edit-customer") {
-    const id    = formData.get("id")    as string;
-    const name  = formData.get("name")  as string;
-    const phone = (formData.get("phone") as string).replace(/\D/g, "");
+    const id     = formData.get("id")    as string;
+    const name   = formData.get("name")  as string;
+    const phone  = (formData.get("phone") as string).replace(/\D/g, "");
+    const points = Math.max(0, parseInt(String(formData.get("points") || "0"), 10));
     await pool.query(
-      `UPDATE "Customer" SET name = $1, phone_number = $2 WHERE customer_id = $3::uuid`,
-      [name, phone, id]
+      `UPDATE "Customer" SET name = $1, phone_number = $2, points = $3 WHERE customer_id = $4::uuid`,
+      [name, phone, points, id]
     );
     return { ok: true };
+  }
+
+  if (intent === "delete-customer") {
+    const id = formData.get("id") as string;
+    try {
+      await pool.query(`DELETE FROM "Customer" WHERE customer_id = $1::uuid`, [id]);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Cannot delete: this customer has order history." };
+    }
   }
 
   if (intent === "delete-employee") {
@@ -260,6 +324,19 @@ export async function action({ request, context }: Route.ActionArgs) {
 const TABS = ["Inventory", "Menu", "Employees", "Customers", "Reports"] as const;
 
 const inputCls = "field-input text-sm";
+
+function EyeIcon({ visible }: { visible: boolean }) {
+  return visible ? (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+    </svg>
+  );
+}
 
 function SeasonalToggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -303,9 +380,17 @@ export default function Manager() {
     });
   }, [language]);
 
-  const [selected, setSelected]       = useState<string | null>(null);
-  const [showAdd, setShowAdd]         = useState(false);
-  const [editItem, setEditItem]       = useState<InventoryItem | null>(null);
+  const [selected, setSelected]           = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const [showAdd, setShowAdd]             = useState(false);
+  const [editItem, setEditItem]           = useState<InventoryItem | null>(null);
+  const [setPinFor, setSetPinFor]         = useState<Employee | null>(null);
+  const [pinInputVal, setPinInputVal]     = useState("");
+  const [pinSetError, setPinSetError]     = useState<string | null>(null);
+  const [showPinText, setShowPinText]     = useState(false);
+  const [showEditPin, setShowEditPin]     = useState(false);
+  const [zResetPin, setZResetPin]         = useState("");
+  const [showZReset, setShowZReset]       = useState(false);
   const [addForm, setAddForm]         = useState({ name: "", category: "", price: "", isSeasonal: false, quantity: "0", minQuantity: "0" });
   const [editSeasonal, setEditSeasonal] = useState(false);
   const [xReport, setXReport]           = useState<string | null>(null);
@@ -324,6 +409,7 @@ export default function Manager() {
         const d = fetcher.data as { ok: boolean; report: string };
         // Decide which panel to update based on report content
         if (d.report.startsWith("X REPORT")) setXReport(d.report);
+        else if (d.report.startsWith("Z-report reset") || d.report.startsWith("ERROR")) { setZReport(d.report); setShowZReset(false); setZResetPin(""); }
         else setZReport(d.report);
       } else {
         setShowAdd(false);
@@ -332,6 +418,11 @@ export default function Manager() {
         setShowAddEmployee(false);
         setEditEmployee(null);
         setSelectedEmployee(null);
+        setSetPinFor(null);
+        setPinInputVal("");
+        setPinSetError(null);
+        setShowPinText(false);
+        setShowEditPin(false);
       }
     }
   }, [fetcher.state, fetcher.data]);
@@ -343,10 +434,8 @@ export default function Manager() {
     setEditSeasonal(item.isSeasonal);
   };
 
-  const handleDelete = () => {
-    if (!selected) return;
-    fetcher.submit({ intent: "delete", id: selected }, { method: "post" });
-  };
+  const confirmDelete = (title: string, message: string, onConfirm: () => void) =>
+    setDeleteConfirm({ title, message, onConfirm });
 
   const busy = fetcher.state !== "idle";
 
@@ -406,17 +495,16 @@ export default function Manager() {
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Min Qty</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Seasonal</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">On Menu</th>
+                      <th className="px-4 py-3 w-8"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {inventory.map((item) => (
                       <tr
                         key={item.id}
-                        onClick={() => setSelected(selected === item.id ? null : item.id)}
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === "Enter" && setSelected(selected === item.id ? null : item.id)}
                         aria-selected={selected === item.id}
-                        className={`cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
+                        className={`transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600
                           ${selected === item.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
                       >
                         <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
@@ -442,42 +530,20 @@ export default function Manager() {
                             {item.onMenu ? "On" : "Off"}
                           </span>
                         </td>
+                        <td className="px-2 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setSelected(item.id); setEditItem(item); setEditSeasonal(item.isSeasonal); }}
+                            aria-label={`Edit ${item.name}`}
+                            className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded p-0.5"
+                          >
+                            ✎
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={openEdit}
-                  disabled={!selected}
-                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Edit selected
-                </button>
-                <button
-                  onClick={() => {
-                    if (!selected) return;
-                    fetcher.submit({ intent: "toggle-menu", id: selected }, { method: "post" });
-                  }}
-                  disabled={!selected || busy}
-                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {(() => {
-                    const item = inventory.find((i) => i.id === selected);
-                    if (!item) return "Toggle menu";
-                    if (!item.onMenu && item.quantity < item.minQuantity) return "Toggle menu (low stock)";
-                    return item.onMenu ? "Remove from menu" : "Add to menu";
-                  })()}
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={!selected || busy}
-                  className="danger-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {busy ? "Deleting…" : "Delete selected"}
-                </button>
               </div>
             </section>
           )}
@@ -542,7 +608,12 @@ export default function Manager() {
                         <td className="px-4 py-3 text-slate-900 font-medium">{item.name}</td>
                         <td className="px-4 py-3 text-slate-600">{item.category}</td>
                         <td className="px-4 py-3 text-slate-800">${Number(item.price).toFixed(2)}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.isSeasonal ? "🍂 Yes" : "—"}</td>
+                        <td className="px-4 py-3"
+                          onClick={(e) => { e.stopPropagation(); fetcher.submit({ intent: "toggle-seasonal", id: item.id }, { method: "post" }); }}>
+                          <span className={`cursor-pointer inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${item.isSeasonal ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                            {item.isSeasonal ? "Yes" : "—"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3">
                           <button
                             type="button"
@@ -585,6 +656,8 @@ export default function Manager() {
                     <tr className="bg-slate-100 border-b border-slate-200">
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700">Start Date</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">PIN</th>
+                      <th className="px-4 py-3 w-8"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -600,34 +673,29 @@ export default function Manager() {
                       >
                         <td className="px-4 py-3 text-slate-900 font-medium">{emp.name}</td>
                         <td className="px-4 py-3 text-slate-700">{emp.start_date.slice(0, 10)}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setSetPinFor(emp); setPinInputVal(emp.pin); setPinSetError(null); }}
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${emp.hasPin ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                          >
+                            {emp.hasPin ? "Set ✓" : "No PIN"}
+                          </button>
+                        </td>
+                        <td className="px-2 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setSelectedEmployee(emp.id); setEditEmployee(emp); }}
+                            aria-label={`Edit ${emp.name}`}
+                            className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded p-0.5"
+                          >
+                            ✎
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => {
-                    const emp = employees.find((e) => e.id === selectedEmployee);
-                    if (emp) setEditEmployee(emp);
-                  }}
-                  disabled={!selectedEmployee}
-                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Edit selected
-                </button>
-                <button
-                  onClick={() => {
-                    if (!selectedEmployee) return;
-                    if (!confirm("Delete this employee? This cannot be undone.")) return;
-                    fetcher.submit({ intent: "delete-employee", id: selectedEmployee }, { method: "post" });
-                  }}
-                  disabled={!selectedEmployee || busy}
-                  className="danger-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {busy ? "Deleting…" : "Delete selected"}
-                </button>
               </div>
             </section>
           )}
@@ -647,6 +715,7 @@ export default function Manager() {
                         <th className="px-4 py-3">Phone</th>
                         <th className="px-4 py-3 text-right">Points</th>
                         <th className="px-4 py-3 text-right">Orders</th>
+                        <th className="px-4 py-3 w-8"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -664,24 +733,22 @@ export default function Manager() {
                           <td className="px-4 py-3 text-slate-500">{c.phone}</td>
                           <td className="px-4 py-3 text-right font-semibold text-indigo-600">{c.points.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right text-slate-500">{c.orderCount}</td>
+                          <td className="px-2 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setSelectedCustomer(c.id); setEditCustomer(c); }}
+                              aria-label={`Edit ${c.name}`}
+                              className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded p-0.5"
+                            >
+                              ✎
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
-              <div className="mt-3">
-                <button
-                  onClick={() => {
-                    const c = customers.find((c) => c.id === selectedCustomer);
-                    if (c) setEditCustomer(c);
-                  }}
-                  disabled={!selectedCustomer}
-                  className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Edit selected
-                </button>
-              </div>
             </section>
           )}
 
@@ -734,6 +801,13 @@ export default function Manager() {
                     >
                       Run Z Report (close of day)
                     </button>
+                    <button
+                      onClick={() => setShowZReset(true)}
+                      disabled={busy}
+                      className="secondary-btn px-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Undo Z Report
+                    </button>
                   </div>
                   {zReport && (
                     <pre className="text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-4 whitespace-pre-wrap overflow-x-auto">
@@ -753,6 +827,101 @@ export default function Manager() {
       <footer className="soft-footer px-5 py-1.5 text-xs">
         Manager — menu, inventory, employees, reports
       </footer>
+
+      {/* Unified delete confirmation modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" role="dialog" aria-modal="true">
+          <div className="surface-card w-full max-w-sm p-6 text-center space-y-4">
+            <p className="text-lg font-bold text-slate-900">{deleteConfirm.title}</p>
+            <p className="text-sm text-slate-600">{deleteConfirm.message}</p>
+            <div className="flex gap-3 justify-center">
+              <button onClick={() => setDeleteConfirm(null)} className="secondary-btn px-5 py-2 text-sm focus:outline-none">Cancel</button>
+              <button
+                onClick={() => { deleteConfirm.onConfirm(); setDeleteConfirm(null); }}
+                className="danger-btn px-5 py-2 text-sm focus:outline-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set PIN modal */}
+      {setPinFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="surface-card w-full max-w-sm p-6 space-y-4">
+            <p className="text-base font-bold text-slate-900">Set PIN — {setPinFor.name}</p>
+            <p className="text-xs text-slate-500">Enter a 4–8 digit PIN used for cashier login. Hover the eye icon to reveal.</p>
+            <div className="relative">
+              <input
+                type={showPinText ? "text" : "password"}
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="Enter PIN (digits only)"
+                value={pinInputVal}
+                onChange={e => { setPinInputVal(e.target.value); setPinSetError(null); }}
+                className="field-input text-sm pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPinText(v => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                aria-label={showPinText ? "Hide PIN" : "Show PIN"}
+                tabIndex={-1}
+              >
+                <EyeIcon visible={showPinText} />
+              </button>
+            </div>
+            {pinSetError && <p className="text-xs text-red-600">{pinSetError}</p>}
+            <div className="flex gap-3">
+              <button onClick={() => { setSetPinFor(null); setPinInputVal(""); setPinSetError(null); }} className="secondary-btn flex-1 py-2 text-sm focus:outline-none">Cancel</button>
+              <button
+                onClick={() => {
+                  if (!/^\d{4,8}$/.test(pinInputVal)) { setPinSetError("PIN must be 4–8 digits."); return; }
+                  fetcher.submit({ intent: "set-pin", id: setPinFor.id, pin: pinInputVal }, { method: "post" });
+                }}
+                disabled={busy}
+                className="primary-btn flex-1 py-2 text-sm focus:outline-none disabled:opacity-60"
+              >
+                {busy ? "Saving…" : "Save PIN"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Z-report reset modal */}
+      {showZReset && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="surface-card w-full max-w-sm p-6 space-y-4">
+            <p className="text-base font-bold text-slate-900">Undo Z Report</p>
+            <p className="text-xs text-slate-500">This deletes today's Z-report and rebuilds the sales activity from order history, so you can run the X/Z reports again. Requires manager PIN.</p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={8}
+              placeholder="Manager PIN"
+              value={zResetPin}
+              onChange={e => setZResetPin(e.target.value)}
+              className="field-input text-sm"
+            />
+            <div className="flex gap-3">
+              <button onClick={() => { setShowZReset(false); setZResetPin(""); }} className="secondary-btn flex-1 py-2 text-sm focus:outline-none">Cancel</button>
+              <button
+                onClick={() => {
+                  if (!zResetPin.trim()) return;
+                  fetcher.submit({ intent: "z-report-reset", pin: zResetPin }, { method: "post" });
+                }}
+                disabled={busy || !zResetPin.trim()}
+                className="primary-btn flex-1 py-2 text-sm focus:outline-none disabled:opacity-60"
+              >
+                {busy ? "Resetting…" : "Reset Z Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Item Modal */}
       {showAdd && (
@@ -846,7 +1015,10 @@ export default function Manager() {
           onClick={(e) => { if (e.target === e.currentTarget) setEditCustomer(null); }}
         >
           <div className="surface-card w-full max-w-sm p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Customer</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-slate-900">Edit Customer</h2>
+              <button type="button" onClick={() => confirmDelete("Delete customer?", "This permanently removes the customer. If they have order history the deletion will be blocked.", () => { fetcher.submit({ intent: "delete-customer", id: editCustomer.id }, { method: "post" }); setEditCustomer(null); })} className="danger-btn px-3 py-1 text-xs focus:outline-none">Delete</button>
+            </div>
             <fetcher.Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="edit-customer" />
               <input type="hidden" name="id" value={editCustomer.id} />
@@ -858,10 +1030,12 @@ export default function Manager() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
                 <input name="phone" type="tel" defaultValue={editCustomer.phone} required className={inputCls} />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Points</label>
+                <input name="points" type="number" min="0" defaultValue={editCustomer.points} required className={inputCls} />
+              </div>
               <div className="flex gap-3 mt-2">
-                <button type="button" onClick={() => setEditCustomer(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
-                  Cancel
-                </button>
+                <button type="button" onClick={() => setEditCustomer(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">Cancel</button>
                 <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Saving…" : "Save Changes"}
                 </button>
@@ -880,7 +1054,10 @@ export default function Manager() {
           onClick={(e) => { if (e.target === e.currentTarget) setEditEmployee(null); }}
         >
           <div className="surface-card w-full max-w-sm p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Employee</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-slate-900">Edit Employee</h2>
+              <button type="button" onClick={() => confirmDelete("Delete employee?", "This permanently removes the employee record.", () => { fetcher.submit({ intent: "delete-employee", id: editEmployee.id }, { method: "post" }); setEditEmployee(null); })} className="danger-btn px-3 py-1 text-xs focus:outline-none">Delete</button>
+            </div>
             <fetcher.Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="edit-employee" />
               <input type="hidden" name="id" value={editEmployee.id} />
@@ -892,10 +1069,31 @@ export default function Manager() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
                 <input name="start_date" type="date" defaultValue={editEmployee.start_date.slice(0, 10)} required className={inputCls} />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">PIN <span className="text-slate-400 font-normal text-xs">(4–8 digits — leave blank to keep current)</span></label>
+                <div className="relative">
+                  <input
+                    name="pin"
+                    type={showEditPin ? "text" : "password"}
+                    inputMode="numeric"
+                    maxLength={8}
+                    defaultValue={editEmployee.pin}
+                    placeholder={editEmployee.hasPin ? "Current PIN hidden" : "Set a PIN"}
+                    className={`${inputCls} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowEditPin(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    aria-label={showEditPin ? "Hide PIN" : "Show PIN"}
+                  >
+                    <EyeIcon visible={showEditPin} />
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-3 mt-2">
-                <button type="button" onClick={() => setEditEmployee(null)} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">
-                  Cancel
-                </button>
+                <button type="button" onClick={() => { setEditEmployee(null); setShowEditPin(false); }} className="secondary-btn flex-1 py-2.5 focus:outline-none transition-colors">Cancel</button>
                 <button type="submit" disabled={busy} className="primary-btn flex-1 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors disabled:opacity-60">
                   {busy ? "Saving…" : "Save Changes"}
                 </button>
@@ -914,7 +1112,10 @@ export default function Manager() {
           onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
         >
           <div className="surface-card w-full max-w-md p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Item</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-slate-900">Edit Item</h2>
+              <button type="button" onClick={() => confirmDelete("Delete item?", `Permanently delete "${editItem.name}"? This removes it from the database entirely.`, () => { fetcher.submit({ intent: "delete", id: editItem.id }, { method: "post" }); setEditItem(null); })} className="danger-btn px-3 py-1 text-xs focus:outline-none">Delete</button>
+            </div>
             <fetcher.Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="edit" />
               <input type="hidden" name="id" value={editItem.id} />

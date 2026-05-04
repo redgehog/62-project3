@@ -79,7 +79,7 @@ export default function MenuBoard() {
             className={`flex flex-col overflow-y-auto px-8 py-8 ${i < categories.length - 1 ? "border-r border-slate-700" : ""}`}
           >
             <h2 className="text-blue-400 text-xl font-bold uppercase tracking-widest mb-6 pb-3 border-b border-slate-700">
-              {cat === "Seasonal" ? "🍂 Seasonal" : cat}
+              {cat}
             </h2>
             <ul className="flex flex-col gap-5" role="list">
               {(cat === "Toppings" ? TOPPINGS : menu[cat]).map((item) => (

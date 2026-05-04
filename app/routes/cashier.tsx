@@ -11,7 +11,6 @@ import {
 import { translateText } from "../translate";
 import { TranslationContext } from "../root";
 import { applyTax, TAX_RATE } from "../lib/pricing";
-import { useSpeechToText } from "../lib/useSpeechToText";
 import { qrCodeUrl } from "../lib/qr";
 
 export function meta({}: Route.MetaArgs) {
@@ -90,7 +89,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  return { categories, byCategory, baseUrl: new URL(request.url).origin };
+  const session2 = await getCashierSession(request);
+  const empId = session2.get("cashier:employeeId") as string | undefined;
+  let employeeName = "";
+  if (empId) {
+    const empRow = await pool.query(`SELECT name FROM "Employee" WHERE employee_id = $1::uuid LIMIT 1`, [empId]);
+    employeeName = empRow.rows[0]?.name ?? "";
+  }
+  return { categories, byCategory, employeeName };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -120,15 +126,8 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "verify-pin") {
     await requireCashierAccess(request);
     const pin = String(formData.get("pin") || "").trim();
-    const session = await getCashierSession(request);
-    const sessionEmployeeId = session.get("cashier:employeeId") as string | undefined;
-    const result = sessionEmployeeId
-      ? await pool.query(
-          `SELECT 1 FROM "Employee" WHERE employee_id = $1::uuid AND pin = $2 LIMIT 1`,
-          [sessionEmployeeId, pin]
-        )
-      : await pool.query(`SELECT 1 FROM "Employee" WHERE pin = $1 LIMIT 1`, [pin]);
-    return { ok: result.rows.length > 0 };
+    // Master PIN — shared override code, not an employee's personal PIN
+    return { ok: pin === "1234" };
   }
 
   if (intent === "verify-promo") {
@@ -228,9 +227,10 @@ export async function action({ request }: Route.ActionArgs) {
     const orderNumber = await getNextOrderNumber(client);
     placedOrderNumber = orderNumber;
     const { rows } = await client.query(
-      `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number)
-       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6) RETURNING order_id`,
-      [employeeId, customerId, discountedTotal.toFixed(2), totalQty, customerName, orderNumber]
+      `INSERT INTO "Order" (order_id, employee_id, customer_id, date, total_price, payment_method, item_quantity, customer_name, order_number, promo_code, discount_amount)
+       VALUES (gen_random_uuid(), $1, $2, now(), $3, 'Cash', $4, $5, $6, $7, $8) RETURNING order_id`,
+      [employeeId, customerId, discountedTotal.toFixed(2), totalQty, customerName, orderNumber,
+       promoCodeInput || null, promoDiscountAmt.toFixed(2)]
     );
     orderId = rows[0].order_id;
 
@@ -339,7 +339,16 @@ interface OrderItem {
 
 export default function Cashier() {
   const navigate = useNavigate();
-  const { categories, byCategory, baseUrl } = useLoaderData<typeof loader>();
+  const { categories, byCategory, employeeName } = useLoaderData<typeof loader>();
+  const [welcomeMsg, setWelcomeMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!employeeName) return;
+    setWelcomeMsg(`Welcome, ${employeeName}!`);
+    const t = setTimeout(() => setWelcomeMsg(null), 3000);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const fetcher       = useFetcher<typeof action>();
   const lookupFetcher = useFetcher<typeof action>();
   const pinFetcher    = useFetcher<typeof action>();
@@ -400,7 +409,6 @@ export default function Cashier() {
   const [appliedPromo, setAppliedPromo]         = useState<{ code: string; discountPct: number } | null>(null);
   const [promoError, setPromoError]             = useState<string | null>(null);
   const [customerName, setCustomerName]         = useState("");
-  const nameSpeech = useSpeechToText((t) => setCustomerName(t));
   const [customerPhone, setCustomerPhone]       = useState("");
   const [lookedUpCustomer, setLookedUpCustomer] = useState<{ id: string; name: string; points: number } | "not-found" | null>(null);
   const [redeem300, setRedeem300]               = useState(0);
@@ -561,7 +569,12 @@ export default function Cashier() {
     }
   };
 
-  const removeItem = (cartKey: string) => setOrderItems(prev => prev.filter(o => o.cartKey !== cartKey));
+  const removeItem   = (cartKey: string) => setOrderItems(prev => prev.filter(o => o.cartKey !== cartKey));
+  const changeQty    = (cartKey: string, delta: number) =>
+    setOrderItems(prev => prev
+      .map(o => o.cartKey === cartKey ? { ...o, qty: o.qty + delta } : o)
+      .filter(o => o.qty > 0)
+    );
 
   const subtotal        = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const tax             = subtotal * TAX_RATE;
@@ -619,6 +632,12 @@ export default function Cashier() {
 
   return (
     <div className="h-screen flex flex-col app-shell">
+      {/* Welcome toast */}
+      {welcomeMsg && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-xl text-sm font-semibold animate-pulse pointer-events-none">
+          {welcomeMsg}
+        </div>
+      )}
       <header className="app-header px-6 py-4 shrink-0">
         <div className="topbar-row">
           <div className="topbar-brand">
@@ -852,7 +871,12 @@ export default function Cashier() {
                       </p>
                     </div>
                     <span className="flex items-center gap-1 text-slate-700 shrink-0 ml-2">
-                      <span className="text-xs">${(item.price * item.qty).toFixed(2)}</span>
+                      <button onClick={() => changeQty(item.cartKey, -1)} aria-label="Decrease quantity"
+                        className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center focus:outline-none">−</button>
+                      <span className="text-xs w-4 text-center">{item.qty}</span>
+                      <button onClick={() => changeQty(item.cartKey, 1)} aria-label="Increase quantity"
+                        className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center focus:outline-none">+</button>
+                      <span className="text-xs ml-1">${(item.price * item.qty).toFixed(2)}</span>
                       <button onClick={() => openItemForEdit(item)} aria-label={`Edit ${item.name}`}
                         className="text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-0.5">✎</button>
                       <button onClick={() => removeItem(item.cartKey)} aria-label={`Remove ${item.name}`}
@@ -905,18 +929,7 @@ export default function Cashier() {
                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                   placeholder="Enter customer name"
                 />
-                {nameSpeech.supported && (
-                  <button type="button" onClick={nameSpeech.toggle}
-                    aria-label={nameSpeech.listening ? "Stop recording" : "Speak customer name"}
-                    className={`px-3 py-2 rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600
-                      ${nameSpeech.listening ? "bg-red-100 text-red-600 animate-pulse" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                    🎤
-                  </button>
-                )}
               </div>
-              {nameSpeech.listening && (
-                <p className="text-[10px] text-red-500 mt-1 animate-pulse">Listening…</p>
-              )}
             </label>
             {lookedUpCustomer && lookedUpCustomer !== "not-found" && availablePoints >= 100 && (
               <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
@@ -1219,7 +1232,7 @@ export default function Cashier() {
 
             {/* Price override */}
             <div className="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
-              <p className="text-xs font-semibold text-amber-800">Price Override <span className="font-normal text-amber-600">(requires manager PIN)</span></p>
+              <p className="text-xs font-semibold text-amber-800">Price Override <span className="font-normal text-amber-600">(requires master PIN)</span></p>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-600">$</span>
                 <input
@@ -1239,7 +1252,7 @@ export default function Cashier() {
                     maxLength={8}
                     value={pinInput}
                     onChange={e => { setPinInput(e.target.value); setPinError(null); }}
-                    placeholder="Manager PIN"
+                    placeholder="Master PIN"
                     className="w-full rounded-lg border border-amber-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                   {pinError && <p className="text-xs text-red-600">{pinError}</p>}
