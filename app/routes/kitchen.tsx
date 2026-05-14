@@ -78,25 +78,10 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const id = formData.get("id") as string;
   const result = await pool.query(
-    `WITH completed AS (
-       UPDATE "Order"
-       SET status = 'completed'
-       WHERE order_id = $1::uuid
-         AND status IN ('pending', 'scheduled')
-       RETURNING order_id
-     ),
-     consumed AS (
-       SELECT oi.item_id, SUM(oi.quantity)::int AS qty
-       FROM "Order_Item" oi
-       JOIN completed c ON c.order_id = oi.order_id
-       GROUP BY oi.item_id
-     )
-     UPDATE "Item" i
-     SET quantity  = GREATEST(i.quantity - c.qty, 0),
-         is_active = CASE WHEN (i.quantity - c.qty) < i.min_quantity THEN false ELSE i.is_active END
-     FROM consumed c
-     WHERE i.item_id = c.item_id
-     RETURNING i.item_id`,
+    `UPDATE "Order"
+     SET status = 'completed'
+     WHERE order_id = $1::uuid
+       AND status IN ('pending', 'scheduled')`,
     [id]
   );
   return { ok: true, updatedItems: result.rowCount ?? 0 };

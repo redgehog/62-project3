@@ -234,13 +234,44 @@ export async function action({ request }: Route.ActionArgs) {
     );
     orderId = rows[0].order_id;
 
+    // Group by item_id to satisfy the unique (order_id, item_id) constraint.
+    // Multiple cart rows with the same item but different customisations get merged.
+    const grouped = new Map<string, { qty: number; price: number; size: string; iceLevel: string; milkType: string; toppingNames: string[]; temperature: string | null; sweetness: number | null }>();
     for (const item of items) {
+      const existing = grouped.get(item.id);
+      if (existing) {
+        existing.qty += item.qty;
+      } else {
+        grouped.set(item.id, {
+          qty: item.qty,
+          price: item.price,
+          size: item.size,
+          iceLevel: item.iceLevel,
+          milkType: item.milkType,
+          toppingNames: item.toppingNames,
+          temperature: item.temperature || null,
+          sweetness: item.sweetness || null,
+        });
+      }
+    }
+
+    for (const [itemId, g] of grouped.entries()) {
       await client.query(
         `INSERT INTO "Order_Item" (id, order_id, item_id, quantity, unit_price, size, ice_level, milk_type, toppings, temperature, sweetness)
          VALUES (gen_random_uuid(), $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [orderId, item.id, item.qty, item.price.toFixed(2),
-         item.size, item.iceLevel, item.milkType,
-         item.toppingNames, item.temperature || null, item.sweetness || null]
+        [orderId, itemId, g.qty, g.price.toFixed(2),
+         g.size, g.iceLevel, g.milkType,
+         g.toppingNames, g.temperature, g.sweetness]
+      );
+    }
+
+    for (const [itemId, g] of grouped.entries()) {
+      await client.query(
+        `UPDATE "Item"
+         SET quantity  = GREATEST(quantity - $1, 0),
+             is_active = CASE WHEN (quantity - $1) < min_quantity THEN false ELSE is_active END
+         WHERE item_id = $2::uuid`,
+        [g.qty, itemId]
       );
     }
 
@@ -1079,7 +1110,7 @@ export default function Cashier() {
               </p>
               <div className="mt-4 flex flex-col items-center gap-1.5">
                 <img
-                  src={qrCodeUrl(`${baseUrl}/order-status?n=${orderConfirmation.orderNumber}`)}
+                  src={qrCodeUrl(`${typeof window !== "undefined" ? window.location.origin : ""}/order-status?n=${orderConfirmation.orderNumber}`)}
                   alt="Order status QR code"
                   width={140}
                   height={140}
